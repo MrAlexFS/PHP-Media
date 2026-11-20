@@ -1,0 +1,18 @@
+{
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/LuckyWins/yandex-music-api"
+        }
+    ],
+    "require": {
+        "vladkens/vk": "^0.1.9",
+        "luckywins/yandex-music-api": "^2.0",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}

@@ -1,0 +1,3353 @@
+﻿
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\app\Services\UploadService.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+/**
+ * РСЃРєР»СЋС‡РµРЅРёРµ РґР»СЏ РѕС€РёР±РѕРє РїСЂРѕРІРµСЂРєРё Р·Р°РіСЂСѓР¶Р°РµРјС‹С… С„Р°Р№Р»РѕРІ.
+ */
+final class UploadValidationException extends RuntimeException
+{
+}
+
+/**
+ * РџСЂРѕРІРµСЂСЏРµС‚ СЃРѕСЃС‚РѕСЏРЅРёРµ Р·Р°РіСЂСѓР¶РµРЅРЅРѕРіРѕ С„Р°Р№Р»Р° Рё РµРіРѕ СЂР°Р·РјРµСЂ.
+ */
+function validateIncomingUpload(
+    array $file,
+    int $maxBytes,
+    string $label
+): array {
+    if (
+        !isset($file['error'], $file['tmp_name'], $file['name'])
+        || !is_string($file['tmp_name'])
+        || !is_string($file['name'])
+    ) {
+        throw new UploadValidationException(
+            'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ Р·Р°РіСЂСѓР¶Р°РµРјРѕРіРѕ С„Р°Р№Р»Р°.'
+        );
+    }
+
+    $errorCode = (int) $file['error'];
+
+    if ($errorCode !== UPLOAD_ERR_OK) {
+        $message = match ($errorCode) {
+            UPLOAD_ERR_INI_SIZE,
+            UPLOAD_ERR_FORM_SIZE =>
+                "Р¤Р°Р№Р» {$label} РїСЂРµРІС‹С€Р°РµС‚ РґРѕРїСѓСЃС‚РёРјС‹Р№ СЂР°Р·РјРµСЂ.",
+
+            UPLOAD_ERR_PARTIAL =>
+                "Р¤Р°Р№Р» {$label} Р·Р°РіСЂСѓР¶РµРЅ РЅРµ РїРѕР»РЅРѕСЃС‚СЊСЋ.",
+
+            UPLOAD_ERR_NO_TMP_DIR =>
+                'РќР° СЃРµСЂРІРµСЂРµ РѕС‚СЃСѓС‚СЃС‚РІСѓРµС‚ РІСЂРµРјРµРЅРЅР°СЏ РґРёСЂРµРєС‚РѕСЂРёСЏ.',
+
+            UPLOAD_ERR_CANT_WRITE =>
+                'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РїРёСЃР°С‚СЊ С„Р°Р№Р» РЅР° СЃРµСЂРІРµСЂРµ.',
+
+            default =>
+                "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё С„Р°Р№Р»Р° {$label}.",
+        };
+
+        throw new UploadValidationException($message);
+    }
+
+    // РќРµ РїСЂРёРЅРёРјР°РµРј РїСЂРѕРёР·РІРѕР»СЊРЅС‹Р№ РїСѓС‚СЊ Рє Р»РѕРєР°Р»СЊРЅРѕРјСѓ С„Р°Р№Р»Сѓ.
+    if (!is_uploaded_file($file['tmp_name'])) {
+        throw new UploadValidationException(
+            'Р¤Р°Р№Р» РЅРµ РїСЂРѕС€С‘Р» РїСЂРѕРІРµСЂРєСѓ РёСЃС‚РѕС‡РЅРёРєР° Р·Р°РіСЂСѓР·РєРё.'
+        );
+    }
+
+    $actualSize = filesize($file['tmp_name']);
+
+    if (
+        $actualSize === false
+        || $actualSize < 1
+        || $actualSize > $maxBytes
+        || (int) ($file['size'] ?? 0) > $maxBytes
+    ) {
+        throw new UploadValidationException(
+            "РќРµРґРѕРїСѓСЃС‚РёРјС‹Р№ СЂР°Р·РјРµСЂ С„Р°Р№Р»Р° {$label}."
+        );
+    }
+
+    return [
+        'tmp_name' => $file['tmp_name'],
+        'original_name' => $file['name'],
+        'size_bytes' => (int) $actualSize,
+    ];
+}
+
+/**
+ * РЎРѕР·РґР°С‘С‚ Р·Р°РєСЂС‹С‚С‹Р№ РєР°С‚Р°Р»РѕРі, РµСЃР»Рё РѕРЅ РµС‰С‘ РЅРµ СЃСѓС‰РµСЃС‚РІСѓРµС‚.
+ */
+function ensurePrivateDirectory(string $directory): void
+{
+    if (
+        !is_dir($directory)
+        && !mkdir($directory, 0750, true)
+        && !is_dir($directory)
+    ) {
+        throw new RuntimeException(
+            'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РєР°С‚Р°Р»РѕРі С„Р°Р№Р»РѕРІРѕРіРѕ С…СЂР°РЅРёР»РёС‰Р°.'
+        );
+    }
+
+    if (!is_writable($directory)) {
+        throw new RuntimeException(
+            'РЈ РІРµР±-СЃРµСЂРІРµСЂР° РЅРµС‚ РїСЂР°РІ РЅР° Р·Р°РїРёСЃСЊ РІ С…СЂР°РЅРёР»РёС‰Рµ.'
+        );
+    }
+}
+
+/**
+ * РџСЂРѕРІРµСЂСЏРµС‚ MIME-С‚РёРї С„Р°Р№Р»Р°.
+ */
+function detectMimeType(string $tmpName): string
+{
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = $finfo->file($tmpName);
+
+    if (!is_string($mime) || $mime === '') {
+        throw new UploadValidationException(
+            'РќРµ СѓРґР°Р»РѕСЃСЊ РѕРїСЂРµРґРµР»РёС‚СЊ MIME-С‚РёРї С„Р°Р№Р»Р°.'
+        );
+    }
+
+    return $mime;
+}
+
+/**
+ * РЎРѕС…СЂР°РЅСЏРµС‚ Р°СѓРґРёРѕ РІ РїСЂРёРІР°С‚РЅРѕРј РєР°С‚Р°Р»РѕРіРµ.
+ *
+ * Р Р°Р·СЂРµС€С‘РЅРЅС‹Рµ СЂР°СЃС€РёСЂРµРЅРёСЏ: mp3, wav, ogg.
+ * РњР°РєСЃРёРјР°Р»СЊРЅС‹Р№ СЂР°Р·РјРµСЂ: 50 РњРёР‘.
+ */
+function storeAudioUpload(?array $file): array
+{
+    if ($file === null) {
+        throw new UploadValidationException(
+            'РќРµРѕР±С…РѕРґРёРјРѕ РІС‹Р±СЂР°С‚СЊ Р°СѓРґРёРѕС„Р°Р№Р».'
+        );
+    }
+
+    $upload = validateIncomingUpload(
+        $file,
+        50 * 1024 * 1024,
+        'Р°СѓРґРёРѕ'
+    );
+
+    $extension = strtolower(
+        pathinfo(
+            $upload['original_name'],
+            PATHINFO_EXTENSION
+        )
+    );
+
+    // Р Р°СЃС€РёСЂРµРЅРёРµ СЃРѕРїРѕСЃС‚Р°РІР»СЏРµС‚СЃСЏ СЃ РґРѕРїСѓСЃС‚РёРјС‹РјРё MIME-С‚РёРїР°РјРё.
+    $allowed = [
+        'mp3' => [
+            'audio/mpeg',
+            'audio/mp3',
+            'audio/x-mpeg',
+        ],
+
+        'wav' => [
+            'audio/wav',
+            'audio/x-wav',
+            'audio/wave',
+            'audio/vnd.wave',
+        ],
+
+        'ogg' => [
+            'audio/ogg',
+            'application/ogg',
+        ],
+    ];
+
+    if (!isset($allowed[$extension])) {
+        throw new UploadValidationException(
+            'Р Р°Р·СЂРµС€РµРЅС‹ С‚РѕР»СЊРєРѕ С„Р°Р№Р»С‹ MP3, WAV Рё OGG.'
+        );
+    }
+
+    $detectedMime = detectMimeType($upload['tmp_name']);
+
+    if (!in_array(
+        $detectedMime,
+        $allowed[$extension],
+        true
+    )) {
+        throw new UploadValidationException(
+            'Р Р°СЃС€РёСЂРµРЅРёРµ С„Р°Р№Р»Р° РЅРµ СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓРµС‚ РµРіРѕ MIME-С‚РёРїСѓ.'
+        );
+    }
+
+    ensurePrivateDirectory(AUDIO_STORAGE_DIR);
+
+    // РСЃС…РѕРґРЅРѕРµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РЅРµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РІ РїСѓС‚Рё.
+    $filename = bin2hex(random_bytes(16))
+        . '.'
+        . $extension;
+
+    $target = AUDIO_STORAGE_DIR
+        . DIRECTORY_SEPARATOR
+        . $filename;
+
+    if (!move_uploaded_file(
+        $upload['tmp_name'],
+        $target
+    )) {
+        throw new RuntimeException(
+            'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ Р°СѓРґРёРѕС„Р°Р№Р».'
+        );
+    }
+
+    // Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕРµ РѕРіСЂР°РЅРёС‡РµРЅРёРµ РґРѕСЃС‚СѓРїР° Рє С„Р°Р№Р»Сѓ РЅР° Linux.
+    @chmod($target, 0640);
+
+    // РћС‚РЅРѕСЃРёС‚РµР»СЊРЅС‹Р№ РїСѓС‚СЊ Р·Р°РїРёСЃС‹РІР°РµС‚СЃСЏ РІ MySQL.
+    return [
+        'relative_path' => 'audio/' . $filename,
+        'absolute_path' => $target,
+        'mime_type' => match ($extension) {
+            'mp3' => 'audio/mpeg',
+            'wav' => 'audio/wav',
+            'ogg' => 'audio/ogg',
+        },
+        'size_bytes' => $upload['size_bytes'],
+    ];
+}
+
+/**
+ * РЎРѕС…СЂР°РЅСЏРµС‚ РѕР±Р»РѕР¶РєСѓ.
+ *
+ * Р Р°Р·СЂРµС€РµРЅС‹ JPEG, PNG Рё WebP.
+ * SVG РЅР°РјРµСЂРµРЅРЅРѕ РЅРµ СЂР°Р·СЂРµС€С‘РЅ.
+ */
+function storeCoverUpload(?array $file): ?array
+{
+    // РћР±Р»РѕР¶РєР° РЅРµРѕР±СЏР·Р°С‚РµР»СЊРЅР°.
+    if (
+        $file === null
+        || (int) ($file['error'] ?? -1) === UPLOAD_ERR_NO_FILE
+    ) {
+        return null;
+    }
+
+    $upload = validateIncomingUpload(
+        $file,
+        5 * 1024 * 1024,
+        'РѕР±Р»РѕР¶РєРё'
+    );
+
+    $extension = strtolower(
+        pathinfo(
+            $upload['original_name'],
+            PATHINFO_EXTENSION
+        )
+    );
+
+    $allowed = [
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+    ];
+
+    if (!isset($allowed[$extension])) {
+        throw new UploadValidationException(
+            'РћР±Р»РѕР¶РєР° РґРѕР»Р¶РЅР° РёРјРµС‚СЊ С„РѕСЂРјР°С‚ JPEG, PNG РёР»Рё WebP.'
+        );
+    }
+
+    $detectedMime = detectMimeType($upload['tmp_name']);
+    $imageInfo = @getimagesize($upload['tmp_name']);
+
+    if (
+        $detectedMime !== $allowed[$extension]
+        || $imageInfo === false
+        || ($imageInfo['mime'] ?? '') !== $allowed[$extension]
+    ) {
+        throw new UploadValidationException(
+            'Р¤Р°Р№Р» РѕР±Р»РѕР¶РєРё РЅРµ РїСЂРѕС€С‘Р» РїСЂРѕРІРµСЂРєСѓ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ.'
+        );
+    }
+
+    // РћРіСЂР°РЅРёС‡РёРІР°РµРј СЂР°Р·РјРµСЂС‹ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ Рё С‡РёСЃР»Рѕ РїРёРєСЃРµР»РµР№.
+    $width = (int) $imageInfo[0];
+    $height = (int) $imageInfo[1];
+
+    if (
+        $width < 1
+        || $height < 1
+        || $width > 8000
+        || $height > 8000
+        || $width * $height > 25000000
+    ) {
+        throw new UploadValidationException(
+            'РќРµРґРѕРїСѓСЃС‚РёРјС‹Рµ СЂР°Р·РјРµСЂС‹ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ.'
+        );
+    }
+
+    ensurePrivateDirectory(COVER_STORAGE_DIR);
+
+    $filename = bin2hex(random_bytes(16))
+        . '.'
+        . $extension;
+
+    $target = COVER_STORAGE_DIR
+        . DIRECTORY_SEPARATOR
+        . $filename;
+
+    if (!move_uploaded_file(
+        $upload['tmp_name'],
+        $target
+    )) {
+        throw new RuntimeException(
+            'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ РѕР±Р»РѕР¶РєСѓ.'
+        );
+    }
+
+    @chmod($target, 0640);
+
+    return [
+        'relative_path' => 'covers/' . $filename,
+        'absolute_path' => $target,
+        'mime_type' => $allowed[$extension],
+        'size_bytes' => $upload['size_bytes'],
+    ];
+}
+
+/**
+ * РЈРґР°Р»СЏРµС‚ СѓР¶Рµ СЃРѕС…СЂР°РЅС‘РЅРЅС‹Р№ С„Р°Р№Р» РїСЂРё РѕС€РёР±РєРµ РїРѕСЃР»РµРґСѓСЋС‰РµР№ РѕРїРµСЂР°С†РёРё.
+ */
+function removeStoredUpload(?array $file): void
+{
+    if (
+        $file !== null
+        && isset($file['absolute_path'])
+        && is_file($file['absolute_path'])
+    ) {
+        if (!@unlink($file['absolute_path'])) {
+            error_log(
+                'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РІСЂРµРјРµРЅРЅС‹Р№ С„Р°Р№Р» Р·Р°РіСЂСѓР·РєРё.'
+            );
+        }
+    }
+}
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\app\bootstrap.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+// РљРѕСЂРµРЅСЊ РїСЂРѕРµРєС‚Р°: РєР°С‚Р°Р»РѕРі, СЃРѕРґРµСЂР¶Р°С‰РёР№ app Рё public_html.
+define('PROJECT_ROOT', dirname(__DIR__));
+
+/**
+ * Р—Р°РіСЂСѓР¶Р°РµС‚ Р·Р°РєСЂС‹С‚СѓСЋ РєРѕРЅС„РёРіСѓСЂР°С†РёСЋ.
+ */
+function appConfig(): array
+{
+    static $config = null;
+
+    if ($config === null) {
+        $configFile = __DIR__ . '/config.local.php';
+
+        if (!is_file($configFile)) {
+            throw new RuntimeException(
+                'РќРµ РЅР°Р№РґРµРЅ С„Р°Р№Р» РєРѕРЅС„РёРіСѓСЂР°С†РёРё РїСЂРёР»РѕР¶РµРЅРёСЏ.'
+            );
+        }
+
+        $config = require $configFile;
+    }
+
+    return $config;
+}
+
+$config = appConfig();
+
+// РђР±СЃРѕР»СЋС‚РЅС‹Рµ РїСѓС‚Рё Рє Р·Р°РєСЂС‹С‚РѕРјСѓ С„Р°Р№Р»РѕРІРѕРјСѓ С…СЂР°РЅРёР»РёС‰Сѓ.
+define(
+    'STORAGE_ROOT',
+    rtrim(
+        (string) $config['storage_root'],
+        DIRECTORY_SEPARATOR
+    )
+);
+
+define(
+    'AUDIO_STORAGE_DIR',
+    STORAGE_ROOT . DIRECTORY_SEPARATOR . 'audio'
+);
+
+define(
+    'COVER_STORAGE_DIR',
+    STORAGE_ROOT . DIRECTORY_SEPARATOR . 'covers'
+);
+
+// РќР°СЃС‚СЂРѕР№РєРё СЃРµСЃСЃРёРё.
+ini_set('session.use_strict_mode', '1');
+ini_set('session.use_only_cookies', '1');
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_name('PODCASTSESSID');
+
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'secure' => (
+            isset($_SERVER['HTTPS'])
+            && $_SERVER['HTTPS'] !== 'off'
+        ),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+
+    session_start();
+}
+
+/**
+ * Р’РѕР·РІСЂР°С‰Р°РµС‚ РїРѕРґРєР»СЋС‡РµРЅРёРµ PDO.
+ * РџРѕРґРєР»СЋС‡РµРЅРёРµ СЃРѕР·РґР°С‘С‚СЃСЏ С‚РѕР»СЊРєРѕ РѕРґРёРЅ СЂР°Р· Р·Р° Р·Р°РїСЂРѕСЃ.
+ */
+function appDb(): PDO
+{
+    static $pdo = null;
+
+    if ($pdo instanceof PDO) {
+        return $pdo;
+    }
+
+    $config = appConfig()['db'];
+
+    // РџСЂРё РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё РїР°СЂР°РјРµС‚СЂС‹ РјРѕР¶РЅРѕ РїРµСЂРµРѕРїСЂРµРґРµР»РёС‚СЊ
+    // РїРµСЂРµРјРµРЅРЅС‹РјРё РѕРєСЂСѓР¶РµРЅРёСЏ СЃРµСЂРІРµСЂР°.
+    $dsn = getenv('DB_DSN')
+        ?: ($config['dsn'] ?? '');
+
+    $username = getenv('DB_USER')
+        ?: ($config['username'] ?? '');
+
+    $envPassword = getenv('DB_PASS');
+
+    $password = $envPassword !== false
+        ? $envPassword
+        : ($config['password'] ?? '');
+
+    if ($dsn === '' || $username === '') {
+        throw new RuntimeException(
+            'РќРµ РЅР°СЃС‚СЂРѕРµРЅС‹ РїР°СЂР°РјРµС‚СЂС‹ РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє Р‘Р”.'
+        );
+    }
+
+    $pdo = new PDO($dsn, $username, $password, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+
+    return $pdo;
+}
+
+/**
+ * Р’РѕР·РІСЂР°С‰Р°РµС‚ С‚РµРєСѓС‰РµРіРѕ Р°РєС‚РёРІРЅРѕРіРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.
+ * Р РѕР»СЊ РїСЂРѕРІРµСЂСЏРµС‚СЃСЏ РїРѕ Р‘Р”, Р° РЅРµ С‚РѕР»СЊРєРѕ РїРѕ РґР°РЅРЅС‹Рј СЃРµСЃСЃРёРё.
+ */
+function requireAuthenticatedUser(PDO $pdo): array
+{
+    $userId = filter_var(
+        $_SESSION['user_id'] ?? null,
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1]]
+    );
+
+    if ($userId === false) {
+        sendPlainError(401, 'РќРµРѕР±С…РѕРґРёРјР° Р°РІС‚РѕСЂРёР·Р°С†РёСЏ.');
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id, role, is_active
+         FROM users
+         WHERE id = :id
+         LIMIT 1'
+    );
+
+    $stmt->execute(['id' => $userId]);
+    $user = $stmt->fetch();
+
+    if (!$user || (int) $user['is_active'] !== 1) {
+        $_SESSION = [];
+        session_regenerate_id(true);
+
+        sendPlainError(
+            401,
+            'РЈС‡С‘С‚РЅР°СЏ Р·Р°РїРёСЃСЊ РЅРµР°РєС‚РёРІРЅР° РёР»Рё РЅРµ РЅР°Р№РґРµРЅР°.'
+        );
+    }
+
+    return $user;
+}
+
+/**
+ * Р”РѕРїСѓСЃРєР°РµС‚ С‚РѕР»СЊРєРѕ СЂРµРґР°РєС‚РѕСЂР° Рё Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂР°.
+ */
+function requireEditorOrAdmin(array $user): void
+{
+    if (!in_array(
+        $user['role'],
+        ['editor', 'admin'],
+        true
+    )) {
+        sendPlainError(
+            403,
+            'РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ РґР»СЏ РІС‹РїРѕР»РЅРµРЅРёСЏ РѕРїРµСЂР°С†РёРё.'
+        );
+    }
+}
+
+/**
+ * Р—Р°РІРµСЂС€Р°РµС‚ Р·Р°РїСЂРѕСЃ СЃ Р±РµР·РѕРїР°СЃРЅС‹Рј С‚РµРєСЃС‚РѕРІС‹Рј СЃРѕРѕР±С‰РµРЅРёРµРј.
+ */
+function sendPlainError(int $status, string $message): void
+{
+    http_response_code($status);
+    header('Content-Type: text/plain; charset=utf-8');
+
+    exit($message);
+}
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\app\config.local.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+return [
+    'db' => [
+        'dsn' => 'mysql:host=127.0.0.1;dbname=podcast_media;charset=utf8mb4',
+        'username' => 'podcast_app',
+        'password' => '***',
+    ],
+
+    'storage_root' => dirname(__DIR__) . '/storage',
+
+    // Р’РЎРўРђР’Р¬РўР• РЎР®Р”Рђ Р’РђРЁ CLIENT ID РћРў JAMENDO:
+    'jamendo_client_id' => '***',
+];
+
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\admin\upload-form.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+require_once dirname(__DIR__, 2)
+    . '/app/bootstrap.php';
+
+$pdo = appDb();
+$user = requireAuthenticatedUser($pdo);
+requireEditorOrAdmin($user);
+
+// РЎРѕР·РґР°С‘Рј CSRF-С‚РѕРєРµРЅ, РµСЃР»Рё РµРіРѕ РµС‰С‘ РЅРµС‚.
+if (
+    !isset($_SESSION['csrf_token'])
+    || !is_string($_SESSION['csrf_token'])
+) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+?>
+
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Р—Р°РіСЂСѓР·РєР° Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»Р°</title>
+</head>
+<body>
+
+<h1>Р—Р°РіСЂСѓР·РєР° Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»Р°</h1>
+
+<form
+    action="/admin/upload-track.php"
+    method="post"
+    enctype="multipart/form-data"
+>
+    <input
+        type="hidden"
+        name="csrf_token"
+        value="<?= htmlspecialchars(
+            $_SESSION['csrf_token'],
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        ) ?>"
+    >
+
+    <label for="title">РќР°Р·РІР°РЅРёРµ</label>
+    <input
+        id="title"
+        type="text"
+        name="title"
+        maxlength="200"
+        required
+    >
+
+    <br><br>
+
+    <label for="description">РћРїРёСЃР°РЅРёРµ</label>
+    <textarea
+        id="description"
+        name="description"
+        maxlength="10000"
+    ></textarea>
+
+    <br><br>
+
+    <label for="category_id">ID РєР°С‚РµРіРѕСЂРёРё</label>
+    <input
+        id="category_id"
+        type="number"
+        name="category_id"
+        min="1"
+    >
+
+    <br><br>
+
+    <label for="podcast_id">ID РїРѕРґРєР°СЃС‚Р° (РЅРµРѕР±СЏР·Р°С‚РµР»СЊРЅРѕ)</label>
+    <input
+        id="podcast_id"
+        type="number"
+        name="podcast_id"
+        min="1"
+    >
+
+    <br><br>
+
+    <label for="audio">РђСѓРґРёРѕС„Р°Р№Р»</label>
+    <input
+        id="audio"
+        type="file"
+        name="audio"
+        accept=".mp3,.wav,.ogg"
+        required
+    >
+
+    <p>Р”РѕРїСѓСЃС‚РёРјС‹Рµ С„РѕСЂРјР°С‚С‹: MP3, WAV, OGG. Р”Рѕ 50 РњРёР‘.</p>
+
+    <label for="cover">РћР±Р»РѕР¶РєР° (РЅРµРѕР±СЏР·Р°С‚РµР»СЊРЅРѕ)</label>
+    <input
+        id="cover"
+        type="file"
+        name="cover"
+        accept=".jpg,.jpeg,.png,.webp"
+    >
+
+    <p>Р”РѕРїСѓСЃС‚РёРјС‹Рµ С„РѕСЂРјР°С‚С‹: JPEG, PNG, WebP. Р”Рѕ 5 РњРёР‘.</p>
+
+    <button type="submit">Р—Р°РіСЂСѓР·РёС‚СЊ</button>
+</form>
+
+</body>
+</html>
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\admin\upload-track.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+require_once dirname(__DIR__, 2)
+    . '/app/bootstrap.php';
+
+require_once dirname(__DIR__, 2)
+    . '/app/Services/UploadService.php';
+
+$pdo = appDb();
+
+// РџСЂРѕРІРµСЂСЏРµРј Р°РІС‚РѕСЂРёР·Р°С†РёСЋ Рё РїСЂР°РІР° РґРѕСЃС‚СѓРїР°.
+$user = requireAuthenticatedUser($pdo);
+requireEditorOrAdmin($user);
+
+// РљРѕРЅС‚СЂРѕР»Р»РµСЂ РїСЂРёРЅРёРјР°РµС‚ С‚РѕР»СЊРєРѕ POST-Р·Р°РїСЂРѕСЃС‹.
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+
+    sendPlainError(
+        405,
+        'РњРµС‚РѕРґ Р·Р°РїСЂРѕСЃР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.'
+    );
+}
+
+// РџСЂРѕРІРµСЂСЏРµРј CSRF-С‚РѕРєРµРЅ.
+$sessionToken = $_SESSION['csrf_token'] ?? null;
+$postToken = $_POST['csrf_token'] ?? null;
+
+if (
+    !is_string($sessionToken)
+    || !is_string($postToken)
+    || $sessionToken === ''
+    || !hash_equals($sessionToken, $postToken)
+) {
+    sendPlainError(
+        403,
+        'РћС€РёР±РєР° РїСЂРѕРІРµСЂРєРё CSRF-С‚РѕРєРµРЅР°.'
+    );
+}
+
+// РџРѕР»СѓС‡Р°РµРј Рё РїСЂРѕРІРµСЂСЏРµРј РјРµС‚Р°РґР°РЅРЅС‹Рµ.
+$title = isset($_POST['title'])
+    && is_string($_POST['title'])
+    ? trim($_POST['title'])
+    : '';
+
+$description = isset($_POST['description'])
+    && is_string($_POST['description'])
+    ? trim($_POST['description'])
+    : '';
+
+$titleLength = function_exists('mb_strlen')
+    ? mb_strlen($title, 'UTF-8')
+    : strlen($title);
+
+$descriptionLength = function_exists('mb_strlen')
+    ? mb_strlen($description, 'UTF-8')
+    : strlen($description);
+
+if ($title === '' || $titleLength > 200) {
+    sendPlainError(
+        422,
+        'РќР°Р·РІР°РЅРёРµ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ Рё РґРѕР»Р¶РЅРѕ СЃРѕРґРµСЂР¶Р°С‚СЊ РЅРµ Р±РѕР»РµРµ 200 СЃРёРјРІРѕР»РѕРІ.'
+    );
+}
+
+if ($descriptionLength > 10000) {
+    sendPlainError(
+        422,
+        'РћРїРёСЃР°РЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ.'
+    );
+}
+
+// РџСЂРѕРІРµСЂСЏРµРј РЅРµРѕР±СЏР·Р°С‚РµР»СЊРЅСѓСЋ РєР°С‚РµРіРѕСЂРёСЋ.
+$categoryId = null;
+$categoryRaw = $_POST['category_id'] ?? '';
+
+if ($categoryRaw !== '') {
+    if (!is_string($categoryRaw)) {
+        sendPlainError(422, 'РќРµРєРѕСЂСЂРµРєС‚РЅР°СЏ РєР°С‚РµРіРѕСЂРёСЏ.');
+    }
+
+    $validatedCategoryId = filter_var(
+        $categoryRaw,
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1]]
+    );
+
+    if ($validatedCategoryId === false) {
+        sendPlainError(422, 'РќРµРєРѕСЂСЂРµРєС‚РЅР°СЏ РєР°С‚РµРіРѕСЂРёСЏ.');
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id FROM categories WHERE id = :id'
+    );
+
+    $stmt->execute(['id' => $validatedCategoryId]);
+
+    if (!$stmt->fetch()) {
+        sendPlainError(422, 'Р’С‹Р±СЂР°РЅРЅР°СЏ РєР°С‚РµРіРѕСЂРёСЏ РЅРµ СЃСѓС‰РµСЃС‚РІСѓРµС‚.');
+    }
+
+    $categoryId = (int) $validatedCategoryId;
+}
+
+// РџСЂРѕРІРµСЂСЏРµРј РЅРµРѕР±СЏР·Р°С‚РµР»СЊРЅСѓСЋ РїСЂРёРЅР°РґР»РµР¶РЅРѕСЃС‚СЊ Рє РїРѕРґРєР°СЃС‚Сѓ.
+$podcastId = null;
+$podcastRaw = $_POST['podcast_id'] ?? '';
+
+if ($podcastRaw !== '') {
+    if (!is_string($podcastRaw)) {
+        sendPlainError(422, 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ РїРѕРґРєР°СЃС‚Р°.');
+    }
+
+    $validatedPodcastId = filter_var(
+        $podcastRaw,
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1]]
+    );
+
+    if ($validatedPodcastId === false) {
+        sendPlainError(422, 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ РїРѕРґРєР°СЃС‚Р°.');
+    }
+
+    // РђРґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ РјРѕР¶РµС‚ РІС‹Р±СЂР°С‚СЊ Р»СЋР±РѕР№ РїРѕРґРєР°СЃС‚.
+    // Р РµРґР°РєС‚РѕСЂ вЂ” С‚РѕР»СЊРєРѕ СЃРѕР·РґР°РЅРЅС‹Р№ РёРј РїРѕРґРєР°СЃС‚.
+    if ($user['role'] === 'admin') {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM podcasts WHERE id = :id'
+        );
+
+        $stmt->execute(['id' => $validatedPodcastId]);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT id
+             FROM podcasts
+             WHERE id = :id
+               AND created_by = :user_id'
+        );
+
+        $stmt->execute([
+            'id' => $validatedPodcastId,
+            'user_id' => $user['id'],
+        ]);
+    }
+
+    if (!$stmt->fetch()) {
+        sendPlainError(
+            403,
+            'РќРµС‚ РґРѕСЃС‚СѓРїР° Рє РІС‹Р±СЂР°РЅРЅРѕРјСѓ РїРѕРґРєР°СЃС‚Сѓ.'
+        );
+    }
+
+    $podcastId = (int) $validatedPodcastId;
+}
+
+$audio = null;
+$cover = null;
+
+try {
+    // РЎРЅР°С‡Р°Р»Р° РїСЂРѕРІРµСЂСЏРµРј Рё СЃРѕС…СЂР°РЅСЏРµРј С„Р°Р№Р»С‹.
+    $audio = storeAudioUpload($_FILES['audio'] ?? null);
+    $cover = storeCoverUpload($_FILES['cover'] ?? null);
+
+    // Р—Р°С‚РµРј СЃРѕС…СЂР°РЅСЏРµРј РјРµС‚Р°РґР°РЅРЅС‹Рµ РІ Р‘Р”.
+    $stmt = $pdo->prepare(
+        'INSERT INTO tracks (
+            podcast_id,
+            title,
+            description,
+            file_path,
+            cover_path,
+            mime_type,
+            file_size_bytes,
+            category_id,
+            uploader_id,
+            status
+        ) VALUES (
+            :podcast_id,
+            :title,
+            :description,
+            :file_path,
+            :cover_path,
+            :mime_type,
+            :file_size_bytes,
+            :category_id,
+            :uploader_id,
+            :status
+        )'
+    );
+
+    $stmt->execute([
+        'podcast_id' => $podcastId,
+        'title' => $title,
+        'description' => $description !== ''
+            ? $description
+            : null,
+        'file_path' => $audio['relative_path'],
+        'cover_path' => $cover['relative_path'] ?? null,
+        'mime_type' => $audio['mime_type'],
+        'file_size_bytes' => $audio['size_bytes'],
+        'category_id' => $categoryId,
+        'uploader_id' => $user['id'],
+        'status' => 'draft',
+    ]);
+
+    $trackId = (int) $pdo->lastInsertId();
+
+} catch (UploadValidationException $e) {
+    // РќРµ РѕСЃС‚Р°РІР»СЏРµРј Р°СѓРґРёРѕ Р±РµР· Р·Р°РїРёСЃРё РІ Р‘Р”.
+    removeStoredUpload($audio);
+    removeStoredUpload($cover);
+
+    sendPlainError(422, $e->getMessage());
+
+} catch (Throwable $e) {
+    // Р’РЅСѓС‚СЂРµРЅРЅРёРµ СЃРІРµРґРµРЅРёСЏ РѕР± РѕС€РёР±РєРµ РЅРµ РїРѕРєР°Р·С‹РІР°РµРј РїРѕСЃРµС‚РёС‚РµР»СЋ.
+    error_log('РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё Р°СѓРґРёРѕ: ' . $e->getMessage());
+
+    removeStoredUpload($audio);
+    removeStoredUpload($cover);
+
+    sendPlainError(
+        500,
+        'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р».'
+    );
+}
+
+// РњР°С‚РµСЂРёР°Р» СЃРѕР·РґР°РЅ, РЅРѕ РїРѕРєР° РЅРµ РѕРїСѓР±Р»РёРєРѕРІР°РЅ.
+http_response_code(201);
+header('Content-Type: text/plain; charset=utf-8');
+
+echo 'РђСѓРґРёРѕРјР°С‚РµСЂРёР°Р» СЃРѕС…СЂР°РЅС‘РЅ. ID: '
+    . $trackId
+    . '. РЎС‚Р°С‚СѓСЃ: draft.';
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\assets\css\style.css
+// ==========================================
+
+:root {
+    color-scheme: dark;
+    --bg: #101114;
+    --surface: #191a20;
+    --surface-hover: #22232b;
+    --text: #f5f5f7;
+    --muted: #a1a1ad;
+    --accent: #b6f36a;
+    --border: #2b2c34;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background:
+        radial-gradient(ellipse at 50% 0%, #263321 0, transparent 42%),
+        var(--bg);
+    color: var(--text);
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+    line-height: 1.5;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.site-header {
+    min-height: 76px;
+    padding: 18px max(24px, calc((100% - 1180px) / 2));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgb(16 17 20 / 85%);
+}
+
+.brand {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -1px;
+}
+
+.brand span {
+    color: var(--accent);
+}
+
+.header-note,
+.result-count {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.container {
+    width: min(1180px, calc(100% - 40px));
+    margin: 0 auto;
+}
+
+.hero {
+    padding: 76px 0 48px;
+}
+
+.eyebrow {
+    margin: 0 0 12px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+}
+
+.hero h1 {
+    margin: 0;
+    font-size: clamp(38px, 6vw, 68px);
+    line-height: 1.04;
+    letter-spacing: -3px;
+}
+
+.hero-description {
+    max-width: 520px;
+    margin: 20px 0 28px;
+    color: var(--muted);
+    font-size: 16px;
+}
+
+.search-form {
+    display: flex;
+    max-width: 650px;
+    gap: 10px;
+}
+
+.search-form input {
+    min-width: 0;
+    flex: 1;
+    padding: 15px 17px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    outline: none;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+}
+
+.search-form input:focus {
+    border-color: var(--accent);
+}
+
+.search-form button {
+    padding: 0 23px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #151812;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.category-list {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 8px 0 30px;
+}
+
+.category-chip {
+    flex: 0 0 auto;
+    padding: 9px 15px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.category-chip:hover,
+.category-chip.active {
+    border-color: var(--accent);
+    background: rgb(182 243 106 / 10%);
+    color: var(--accent);
+}
+
+.catalog {
+    padding: 20px 0 80px;
+}
+
+.section-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.section-heading .eyebrow {
+    margin-bottom: 5px;
+}
+
+.section-heading h2 {
+    margin: 0;
+    font-size: clamp(26px, 4vw, 36px);
+    letter-spacing: -1px;
+}
+
+.track-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+}
+
+.track-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.track-card:hover {
+    transform: translateY(-3px);
+    border-color: #505448;
+}
+
+.track-cover {
+    position: relative;
+    display: grid;
+    aspect-ratio: 16 / 9;
+    place-items: center;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 30% 25%, #536b3d, transparent 35%),
+        linear-gradient(135deg, #292e25, #24212e 70%);
+}
+
+.cover-symbol {
+    color: rgb(255 255 255 / 85%);
+    font-size: 70px;
+}
+
+.play-badge {
+    position: absolute;
+    right: 15px;
+    bottom: 15px;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #171a12;
+    opacity: 0;
+    transform: translateY(5px);
+    transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.track-card:hover .play-badge,
+.track-card:focus-within .play-badge {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.track-info {
+    padding: 18px;
+}
+
+.track-category {
+    margin: 0 0 7px;
+    color: var(--accent);
+    font-size: 12px;
+}
+
+.track-info h3 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.track-info h3 a:hover,
+.listen-link:hover,
+.reset-link:hover {
+    color: var(--accent);
+}
+
+.podcast-name {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.track-description {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    margin: 12px 0;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.track-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.listen-link {
+    color: var(--text);
+    font-weight: 700;
+}
+
+.empty-state {
+    padding: 60px 20px;
+    border: 1px dashed var(--border);
+    border-radius: 18px;
+    text-align: center;
+    background: rgb(25 26 32 / 65%);
+}
+
+.empty-icon {
+    color: var(--accent);
+    font-size: 42px;
+}
+
+.empty-state h3 {
+    margin: 8px 0;
+    font-size: 23px;
+}
+
+.empty-state p {
+    max-width: 470px;
+    margin: 0 auto 16px;
+    color: var(--muted);
+}
+
+.reset-link {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.notice {
+    margin: 20px 0;
+    padding: 18px;
+    border-radius: 12px;
+}
+
+.notice-error {
+    border: 1px solid #783c42;
+    background: #301d21;
+    color: #ffd6d9;
+}
+
+.site-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 25px max(24px, calc((100% - 1180px) / 2));
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 850px) {
+    .track-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .hero {
+        padding-top: 55px;
+    }
+}
+
+@media (max-width: 560px) {
+    .site-header {
+        min-height: 65px;
+        padding: 16px 20px;
+    }
+
+    .header-note {
+        font-size: 12px;
+    }
+
+    .container {
+        width: calc(100% - 32px);
+    }
+
+    .hero {
+        padding: 45px 0 30px;
+    }
+
+    .hero h1 {
+        letter-spacing: -1.5px;
+    }
+
+    .search-form {
+        gap: 7px;
+    }
+
+    .search-form input {
+        padding: 13px 11px;
+        font-size: 14px;
+    }
+
+    .search-form button {
+        padding: 0 14px;
+    }
+
+    .track-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .section-heading {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .site-footer {
+        flex-direction: column;
+        padding: 22px 20px;
+    }
+}
+
+
+
+---
+
+
+.hidden {
+    display: none !important;
+}
+
+.track-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.track-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 4px;
+}
+
+.tag-pill {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.tag-pill:hover {
+    border-color: var(--accent);
+    background: rgb(182 243 106 / 12%);
+}
+
+.card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.icon-action-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.icon-action-btn:hover,
+.icon-action-btn.liked,
+.fav-btn.liked {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+body.has-player {
+    padding-bottom: 100px;
+}
+
+.bottom-player {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    height: 84px;
+    padding: 0 max(24px, calc((100% - 1180px) / 2));
+    background: rgb(25 26 32 / 96%);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.player-cover {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.player-track-meta {
+    width: 210px;
+    min-width: 0;
+}
+
+.player-title {
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-author {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ctrl-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface-hover);
+    color: var(--text);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+}
+
+.ctrl-play {
+    width: 42px;
+    height: 42px;
+    background: var(--accent);
+    color: #151812;
+    border: none;
+    font-weight: bold;
+}
+
+.player-progress {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.player-progress input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.player-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.fav-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-size: 15px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+}
+
+.fav-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+@media (max-width: 768px) {
+    .player-track-meta {
+        width: 130px;
+    }
+    .player-progress {
+        display: none;
+    }
+}
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\assets\js\player.js
+// ==========================================
+let currentQueue = [];
+let currentIndex = -1;
+let currentTrack = null;
+let activeTag = '';
+let isFavoritesView = false;
+let favorites = JSON.parse(localStorage.getItem('mediateka_favs_v2') || '[]');
+
+const audio = document.getElementById('htmlAudioPlayer');
+
+// 1. Р—Р°РіСЂСѓР·РєР° С‚СЂРµРєРѕРІ РёР· РІР°С€РµРіРѕ Р»РѕРєР°Р»СЊРЅРѕРіРѕ /api.php (СЂР°Р±РѕС‚Р°РµС‚ Р±РµР· РёРЅС‚РµСЂРЅРµС‚Р° Рё Р±Р»РѕРєРёСЂРѕРІРѕРє)
+async function loadCatalog(query = '', tag = '') {
+    const grid = document.getElementById('jamendoTrackGrid');
+    const localGrid = document.getElementById('localTrackGrid');
+    const localCount = Number(grid.dataset.localCount || 0);
+    const titleEl = document.getElementById('catalogTitle');
+    const countEl = document.getElementById('resultCount');
+
+    isFavoritesView = false;
+    if (localGrid) localGrid.classList.remove('hidden');
+
+    grid.innerHTML = `
+        <div class="empty-state" style="grid-column: 1 / -1;">
+            <p>Р—Р°РіСЂСѓР¶Р°РµРј Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»С‹...</p>
+        </div>
+    `;
+
+    try {
+        const params = new URLSearchParams();
+        if (query) params.set('q', query);
+        if (tag) params.set('tag', tag);
+
+        const response = await fetch('/api.php?' + params.toString());
+        const data = await response.json();
+        const tracks = data.tracks || [];
+
+        if (query && tag) {
+            titleEl.textContent = `РџРѕРёСЃРє В«${query}В» РїРѕ #${tag}`;
+        } else if (query) {
+            titleEl.textContent = `Р РµР·СѓР»СЊС‚Р°С‚С‹ РїРѕРёСЃРєР°: В«${query}В»`;
+        } else if (tag) {
+            titleEl.textContent = `РџРѕРґР±РѕСЂРєР° #${tag}`;
+        } else {
+            titleEl.textContent = 'РћС‚РєСЂРѕР№ РґР»СЏ СЃРµР±СЏ';
+        }
+
+        countEl.textContent = `${localCount + tracks.length} РјР°С‚РµСЂРёР°Р»РѕРІ`;
+        renderTracks(tracks, grid);
+    } catch (err) {
+        grid.innerHTML = `<div class="notice notice-error" style="grid-column: 1 / -1;">РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РєР°С‚Р°Р»РѕРіР°: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+// 2. РћС‚СЂРёСЃРѕРІРєР° РєР°СЂС‚РѕС‡РµРє РІ РІР°С€РµРј СЃС‚РёР»Рµ .track-card
+function renderTracks(tracks, container) {
+    if (!tracks.length) {
+        if (isFavoritesView || Number(container.dataset.localCount || 0) === 0) {
+            container.innerHTML = `
+                <div class="empty-state" style="grid-column: 1 / -1;">
+                    <div class="empty-icon">в™«</div>
+                    <h3>${isFavoritesView ? 'Р’ РёР·Р±СЂР°РЅРЅРѕРј РїРѕРєР° РїСѓСЃС‚Рѕ' : 'РќРёС‡РµРіРѕ РЅРµ РЅР°Р№РґРµРЅРѕ'}</h3>
+                    <p>${isFavoritesView ? 'РќР°Р¶РёРјР°Р№С‚Рµ в™Ў РЅР° РєР°СЂС‚РѕС‡РєР°С… С‚СЂРµРєРѕРІ, С‡С‚РѕР±С‹ СЃРѕС…СЂР°РЅСЏС‚СЊ РёС… СЃСЋРґР°.' : 'РџРѕРїСЂРѕР±СѓР№ РёР·РјРµРЅРёС‚СЊ Р·Р°РїСЂРѕСЃ РёР»Рё РІС‹Р±СЂР°С‚СЊ РґСЂСѓРіРѕР№ С…РµС€С‚РµРі.'}</p>
+                </div>
+            `;
+        } else {
+            container.innerHTML = '';
+        }
+        return;
+    }
+
+    container.innerHTML = '';
+
+    tracks.forEach((track, index) => {
+        const isLiked = favorites.some(f => f.id === track.id);
+        const tagsHtml = (track.tags || [])
+            .map(t => `<button type="button" class="tag-pill" data-card-tag="${escapeHtml(t)}">#${escapeHtml(t)}</button>`)
+            .join('');
+
+        const dlHref = track.download;
+
+        const card = document.createElement('article');
+        card.className = 'track-card';
+        card.innerHTML = `
+            <div class="track-cover" style="cursor:pointer;">
+                ${track.cover ? `<img src="${escapeHtml(track.cover)}" alt="" loading="lazy">` : '<span class="cover-symbol">в™«</span>'}
+                <span class="play-badge" aria-hidden="true">в–¶</span>
+            </div>
+            <div class="track-info">
+                <p class="track-category">${escapeHtml(track.author)}</p>
+                <h3><a href="javascript:void(0)">${escapeHtml(track.title)}</a></h3>
+                ${tagsHtml ? `<div class="track-tags">${tagsHtml}</div>` : ''}
+                <div class="track-meta">
+                    <span>${formatTime(track.duration)}</span>
+                    <div class="card-actions">
+                        <button type="button" class="icon-action-btn fav-card-btn ${isLiked ? 'liked' : ''}" title="Р’ РёР·Р±СЂР°РЅРЅРѕРµ">
+                            ${isLiked ? 'в™Ґ' : 'в™Ў'}
+                        </button>
+                        ${track.canDownload && dlHref
+                            ? `<a href="${escapeHtml(dlHref)}" class="icon-action-btn" title="РЎРєР°С‡Р°С‚СЊ Р°СѓРґРёРѕ">в¬‡</a>`
+                            : ''}
+                        <a class="listen-link" href="javascript:void(0)">РЎР»СѓС€Р°С‚СЊ в†’</a>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const startPlay = () => {
+            currentQueue = tracks;
+            playTrackAtIndex(index);
+        };
+
+        card.querySelector('.track-cover').addEventListener('click', startPlay);
+        card.querySelector('h3 a').addEventListener('click', startPlay);
+        card.querySelector('.listen-link').addEventListener('click', startPlay);
+
+        card.querySelectorAll('[data-card-tag]').forEach(tagBtn => {
+            tagBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectTag(tagBtn.dataset.cardTag);
+            });
+        });
+
+        card.querySelector('.fav-card-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleFavorite(track);
+            renderTracks(tracks, container);
+            if (isFavoritesView) {
+                document.getElementById('resultCount').textContent = `${favorites.length} РјР°С‚РµСЂРёР°Р»РѕРІ`;
+            }
+        });
+
+        container.appendChild(card);
+    });
+}
+
+// 3. РЈРїСЂР°РІР»РµРЅРёРµ РїР»РµРµСЂРѕРј
+function playTrackAtIndex(index) {
+    if (index < 0 || index >= currentQueue.length) return;
+    currentIndex = index;
+    currentTrack = currentQueue[index];
+
+    document.body.classList.add('has-player');
+    document.getElementById('bottomPlayer').classList.remove('hidden');
+
+    document.getElementById('playerCover').src = currentTrack.cover || '';
+    document.getElementById('playerTitle').textContent = currentTrack.title;
+    document.getElementById('playerAuthor').textContent = currentTrack.author;
+
+    const dlBtn = document.getElementById('playerDownloadBtn');
+    if (currentTrack.canDownload && currentTrack.download) {
+        dlBtn.href = currentTrack.download;
+        dlBtn.classList.remove('hidden');
+    } else {
+        dlBtn.classList.add('hidden');
+    }
+
+    updatePlayerFavButton();
+    audio.src = currentTrack.audio;
+    audio.play().catch(() => {});
+}
+
+function playNext() {
+    if (!currentQueue.length) return;
+    playTrackAtIndex((currentIndex + 1) % currentQueue.length);
+}
+
+function playPrev() {
+    if (!currentQueue.length) return;
+    playTrackAtIndex((currentIndex - 1 + currentQueue.length) % currentQueue.length);
+}
+
+audio.addEventListener('play', () => {
+    document.getElementById('playPauseBtn').textContent = 'вЏё';
+});
+
+audio.addEventListener('pause', () => {
+    document.getElementById('playPauseBtn').textContent = 'в–¶';
+});
+
+audio.addEventListener('ended', playNext);
+
+audio.addEventListener('timeupdate', () => {
+    const cur = audio.currentTime || 0;
+    const dur = audio.duration || 0;
+    if (dur > 0) {
+        document.getElementById('seekBar').value = (cur / dur) * 100;
+        document.getElementById('timeCurrent').textContent = formatTime(cur);
+        document.getElementById('timeTotal').textContent = formatTime(dur);
+    }
+});
+
+// 4. Р¤РёР»СЊС‚СЂС‹, С…РµС€С‚РµРіРё Рё РёР·Р±СЂР°РЅРЅРѕРµ
+function setActiveChip(selector) {
+    document.querySelectorAll('#filterBar .category-chip').forEach(chip => {
+        chip.classList.remove('active');
+    });
+    const activeEl = document.querySelector(selector);
+    if (activeEl) activeEl.classList.add('active');
+}
+
+function selectTag(tag) {
+    activeTag = tag;
+    setActiveChip(`#filterBar [data-tag="${tag}"]`);
+    const query = document.getElementById('q').value.trim();
+    loadCatalog(query, activeTag);
+}
+
+function showFavorites() {
+    isFavoritesView = true;
+    activeTag = '';
+    setActiveChip('#filterBar [data-action="favorites"]');
+
+    const localGrid = document.getElementById('localTrackGrid');
+    if (localGrid) localGrid.classList.add('hidden');
+
+    const grid = document.getElementById('jamendoTrackGrid');
+    document.getElementById('catalogTitle').textContent = 'РР·Р±СЂР°РЅРЅРѕРµ';
+    document.getElementById('resultCount').textContent = `${favorites.length} РјР°С‚РµСЂРёР°Р»РѕРІ`;
+
+    renderTracks(favorites, grid);
+}
+
+function toggleFavorite(track) {
+    const idx = favorites.findIndex(f => f.id === track.id);
+    if (idx === -1) {
+        favorites.unshift(track);
+    } else {
+        favorites.splice(idx, 1);
+    }
+    localStorage.setItem('mediateka_favs_v2', JSON.stringify(favorites));
+    updateFavCounter();
+    updatePlayerFavButton();
+}
+
+function updateFavCounter() {
+    const el = document.getElementById('favCount');
+    if (el) el.textContent = favorites.length;
+}
+
+function updatePlayerFavButton() {
+    if (!currentTrack) return;
+    const btn = document.getElementById('playerFavBtn');
+    const isLiked = favorites.some(f => f.id === currentTrack.id);
+    btn.textContent = isLiked ? 'в™Ґ' : 'в™Ў';
+    btn.classList.toggle('liked', isLiked);
+}
+
+function formatTime(sec) {
+    const total = Math.max(0, Math.floor(Number(sec) || 0));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateFavCounter();
+
+    const grid = document.getElementById('jamendoTrackGrid');
+    const searchInput = document.getElementById('q');
+    const hasLocalCategory = grid.dataset.hasCategory === '1';
+
+    if (!hasLocalCategory) {
+        loadCatalog(searchInput.value.trim(), '');
+    }
+
+    document.getElementById('searchForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        loadCatalog(searchInput.value.trim(), activeTag);
+    });
+
+    document.querySelectorAll('#filterBar .category-chip').forEach(chip => {
+        if (chip.dataset.action === 'all') {
+            chip.addEventListener('click', (e) => {
+                if (!hasLocalCategory) {
+                    e.preventDefault();
+                    searchInput.value = '';
+                    activeTag = '';
+                    setActiveChip('#filterBar [data-action="all"]');
+                    loadCatalog('', '');
+                }
+            });
+        } else if (chip.dataset.action === 'favorites') {
+            chip.addEventListener('click', (e) => {
+                e.preventDefault();
+                showFavorites();
+            });
+        } else if (chip.dataset.tag) {
+            chip.addEventListener('click', (e) => {
+                e.preventDefault();
+                selectTag(chip.dataset.tag);
+            });
+        }
+    });
+
+    document.getElementById('playPauseBtn').addEventListener('click', () => {
+        if (!audio.src) return;
+        audio.paused ? audio.play() : audio.pause();
+    });
+
+    document.getElementById('nextBtn').addEventListener('click', playNext);
+    document.getElementById('prevBtn').addEventListener('click', playPrev);
+
+    document.getElementById('seekBar').addEventListener('input', (e) => {
+        if (!audio.duration) return;
+        audio.currentTime = (e.target.value / 100) * audio.duration;
+    });
+
+    document.getElementById('playerFavBtn').addEventListener('click', () => {
+        if (!currentTrack) return;
+        toggleFavorite(currentTrack);
+        if (isFavoritesView) {
+            showFavorites();
+        }
+    });
+});
+
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\api.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+
+$query = trim((string) ($_GET['q'] ?? ''));
+$tag = trim((string) ($_GET['tag'] ?? ''));
+
+$audioDir = dirname(__DIR__) . '/storage/audio';
+if (!is_dir($audioDir)) {
+    mkdir($audioDir, 0775, true);
+}
+
+// 1. Р“РµРЅРµСЂР°С‚РѕСЂ СЃС‚РёР»СЊРЅС‹С… РѕР±Р»РѕР¶РµРє РІ С†РІРµС‚Р°С… РІР°С€РµРіРѕ СЃР°Р№С‚Р° (#191a20 Рё #b6f36a)
+function makeLocalCover(string $title, int $seed = 0): string
+{
+    $letter = mb_strtoupper(mb_substr(trim($title), 0, 1)) ?: 'в™«';
+    $colors = ['#293621', '#212c36', '#332136', '#362e21', '#213631'];
+    $bgColor = $colors[$seed % count($colors)];
+
+    $svg = '<svg xmlns="http://w3.org" width="500" height="280" viewBox="0 0 500 280">'
+         . '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+         . '<stop offset="0%" stop-color="' . $bgColor . '"/><stop offset="100%" stop-color="#191a20"/>'
+         . '</linearGradient></defs>'
+         . '<rect width="500" height="280" fill="url(#g)"/>'
+         . '<circle cx="250" cy="140" r="64" fill="#b6f36a" fill-opacity="0.12"/>'
+         . '<text x="250" y="162" font-family="Arial,sans-serif" font-size="68" font-weight="bold" fill="#b6f36a" text-anchor="middle">'
+         . htmlspecialchars($letter, ENT_XML1)
+         . '</text></svg>';
+
+    return 'data:image/svg+xml;base64,' . base64_encode($svg);
+}
+
+$allTracks = [];
+$availableTags = ['pop', 'rock', 'electronic', 'chillout', 'hiphop', 'lofi', 'ambient', 'jazz'];
+
+// 2. РЎРєР°РЅРёСЂСѓРµРј СЂРµР°Р»СЊРЅС‹Рµ Р°СѓРґРёРѕС„Р°Р№Р»С‹ РІ РїР°РїРєРµ storage/audio/
+$files = glob($audioDir . '/*.{mp3,ogg,wav,m4a,MP3,OGG,WAV,M4A}', GLOB_BRACE) ?: [];
+foreach ($files as $idx => $filePath) {
+    $fileName = pathinfo($filePath, PATHINFO_FILENAME);
+    $ext = pathinfo($filePath, PATHINFO_EXTENSION);
+
+    // Р•СЃР»Рё С„Р°Р№Р» РЅР°Р·РІР°РЅ "РђСЂС‚РёСЃС‚ - РќР°Р·РІР°РЅРёРµ", РєСЂР°СЃРёРІРѕ СЂР°Р·РґРµР»СЏРµРј РёС…
+    if (str_contains($fileName, ' - ')) {
+        [$author, $title] = explode(' - ', $fileName, 2);
+    } else {
+        $author = 'РњРѕСЏ РјРµРґРёР°С‚РµРєР°';
+        $title = $fileName;
+    }
+
+    $assignedTag = $availableTags[$idx % count($availableTags)];
+    $streamUrl = '/stream_local.php?file=' . urlencode(basename($filePath));
+
+    $allTracks[] = [
+        'id'          => 'file_' . md5($filePath),
+        'title'       => trim($title),
+        'author'      => trim($author),
+        'duration'    => 180,
+        'cover'       => makeLocalCover($title, $idx),
+        'audio'       => $streamUrl,
+        'download'    => $streamUrl . '&dl=1',
+        'canDownload' => true,
+        'tags'        => [$assignedTag, strtolower($ext)],
+    ];
+}
+
+// 3. Р•СЃР»Рё РІ РїР°РїРєРµ storage/audio/ РїРѕРєР° РЅРµС‚ РІР°С€РёС… MP3, СЃРѕР·РґР°РµРј Р°РІС‚РѕРЅРѕРјРЅС‹Р№ РєР°С‚Р°Р»РѕРі СЃ СЂРµР°Р»СЊРЅС‹Рј РІСЃС‚СЂРѕРµРЅРЅС‹Рј Р·РІСѓРєРѕРј
+if (empty($allTracks)) {
+    $demos = [
+        ['id' => 'synth-1', 'title' => 'РќРѕС‡РЅРѕР№ СЂРёС‚Рј (Demo)', 'author' => 'РњРµРґРёР°С‚РµРєР° Studio', 'freq' => 261.63, 'tags' => ['electronic', 'lofi']],
+        ['id' => 'synth-2', 'title' => 'РЈС‚СЂРµРЅРЅРёР№ С‡РёР»Р»Р°СѓС‚', 'author' => 'Ambient Wave', 'freq' => 329.63, 'tags' => ['chillout', 'ambient']],
+        ['id' => 'synth-3', 'title' => 'Р“РѕСЂРѕРґСЃРєРѕР№ Р±РёС‚', 'author' => 'HipHop Lab', 'freq' => 293.66, 'tags' => ['hiphop', 'pop']],
+        ['id' => 'synth-4', 'title' => 'Р­Р»РµРєС‚СЂРёС‡РµСЃРєРёР№ РёРјРїСѓР»СЊСЃ', 'author' => 'Rock Synth', 'freq' => 392.00, 'tags' => ['rock', 'electronic']],
+        ['id' => 'synth-5', 'title' => 'Р’РµС‡РµСЂРЅРёР№ РґР¶Р°Р·', 'author' => 'Jazz Lounge', 'freq' => 349.23, 'tags' => ['jazz', 'chillout']],
+        ['id' => 'synth-6', 'title' => 'РљРѕСЃРјРёС‡РµСЃРєРёР№ СЌРјР±РёРµРЅС‚', 'author' => 'Deep Space', 'freq' => 220.00, 'tags' => ['ambient', 'lofi']],
+    ];
+
+    foreach ($demos as $idx => $d) {
+        $streamUrl = '/stream_local.php?demo=' . $d['freq'] . '&name=' . urlencode($d['title']);
+        $allTracks[] = [
+            'id'          => $d['id'],
+            'title'       => $d['title'],
+            'author'      => $d['author'],
+            'duration'    => 15,
+            'cover'       => makeLocalCover($d['title'], $idx),
+            'audio'       => $streamUrl,
+            'download'    => $streamUrl . '&dl=1',
+            'canDownload' => true,
+            'tags'        => $d['tags'],
+        ];
+    }
+}
+
+// 4. Р¤РёР»СЊС‚СЂР°С†РёСЏ РїРѕ РїРѕРёСЃРєСѓ Рё С…РµС€С‚РµРіСѓ
+$filtered = array_values(array_filter($allTracks, static function (array $t) use ($query, $tag): bool {
+    $matchQuery = ($query === '')
+        || (mb_stripos($t['title'], $query) !== false)
+        || (mb_stripos($t['author'], $query) !== false);
+
+    $matchTag = ($tag === '') || in_array(mb_strtolower($tag), $t['tags'], true);
+
+    return $matchQuery && $matchTag;
+}));
+
+echo json_encode(['tracks' => $filtered], JSON_UNESCAPED_UNICODE);
+
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\audio.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+require_once dirname(__DIR__)
+    . '/app/bootstrap.php';
+
+$pdo = appDb();
+
+// Р’ СЌС‚РѕР№ СЂРµР°Р»РёР·Р°С†РёРё СЃР»СѓС€Р°С‚СЊ Р°СѓРґРёРѕ РјРѕРіСѓС‚ Р°РІС‚РѕСЂРёР·РѕРІР°РЅРЅС‹Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»Рё.
+$user = requireAuthenticatedUser($pdo);
+
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+if (!in_array($method, ['GET', 'HEAD'], true)) {
+    header('Allow: GET, HEAD');
+
+    sendPlainError(405, 'РњРµС‚РѕРґ Р·Р°РїСЂРѕСЃР° РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.');
+}
+
+// РџСЂРѕРІРµСЂСЏРµРј РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ РјР°С‚РµСЂРёР°Р»Р°.
+$trackId = filter_input(
+    INPUT_GET,
+    'id',
+    FILTER_VALIDATE_INT,
+    ['options' => ['min_range' => 1]]
+);
+
+if ($trackId === false || $trackId === null) {
+    sendPlainError(400, 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ ID Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»Р°.');
+}
+
+// РџРѕР»СѓС‡Р°РµРј Р·Р°РїРёСЃСЊ РёР· Р‘Р”, Р° РЅРµ РїСѓС‚СЊ РѕС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.
+$stmt = $pdo->prepare(
+    'SELECT id, file_path, status, uploader_id
+     FROM tracks
+     WHERE id = :id
+     LIMIT 1'
+);
+
+$stmt->execute(['id' => $trackId]);
+$track = $stmt->fetch();
+
+if (!$track) {
+    sendPlainError(404, 'РђСѓРґРёРѕРјР°С‚РµСЂРёР°Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+// РћРїСЂРµРґРµР»СЏРµРј РїСЂР°РІРѕ РЅР° РїСЂРѕСЃР»СѓС€РёРІР°РЅРёРµ.
+$isAdmin = $user['role'] === 'admin';
+
+$isOwnerEditor = (
+    $user['role'] === 'editor'
+    && $track['uploader_id'] !== null
+    && (int) $track['uploader_id'] === (int) $user['id']
+);
+
+$isPublished = $track['status'] === 'published';
+
+if (!$isPublished && !$isAdmin && !$isOwnerEditor) {
+    // РќРµ СЂР°СЃРєСЂС‹РІР°РµРј СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёРµ Р·Р°РєСЂС‹С‚РѕРіРѕ РјР°С‚РµСЂРёР°Р»Р°.
+    sendPlainError(404, 'РђСѓРґРёРѕРјР°С‚РµСЂРёР°Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+// РџСѓС‚СЊ РґРѕР»Р¶РµРЅ СЃРѕРѕС‚РІРµС‚СЃС‚РІРѕРІР°С‚СЊ С€Р°Р±Р»РѕРЅСѓ,
+// РєРѕС‚РѕСЂС‹Р№ СЃРѕР·РґР°С‘С‚ РЅР°С€ UploadService.
+$relativePath = (string) $track['file_path'];
+
+if (!preg_match(
+    '~\Aaudio/([a-f0-9]{32}\.(?:mp3|wav|ogg))\z~',
+    $relativePath,
+    $matches
+)) {
+    error_log('РќРµРґРѕРїСѓСЃС‚РёРјС‹Р№ РїСѓС‚СЊ Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»Р° ID ' . $trackId);
+
+    sendPlainError(404, 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+// Р Р°Р·СЂРµС€Р°РµРј РїСѓС‚СЊ С‚РѕР»СЊРєРѕ РІРЅСѓС‚СЂРё РєР°С‚Р°Р»РѕРіР° Р°СѓРґРёРѕ.
+$baseDirectory = realpath(AUDIO_STORAGE_DIR);
+
+if ($baseDirectory === false) {
+    sendPlainError(404, 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+$filePath = realpath(
+    $baseDirectory
+    . DIRECTORY_SEPARATOR
+    . $matches[1]
+);
+
+if (
+    $filePath === false
+    || !str_starts_with(
+        $filePath,
+        $baseDirectory . DIRECTORY_SEPARATOR
+    )
+    || !is_file($filePath)
+    || !is_readable($filePath)
+) {
+    sendPlainError(404, 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+$extension = strtolower(
+    pathinfo($filePath, PATHINFO_EXTENSION)
+);
+
+// MIME-С‚РёРї РѕРїСЂРµРґРµР»СЏРµС‚СЃСЏ СЂР°Р·СЂРµС€С‘РЅРЅС‹Рј СЂР°СЃС€РёСЂРµРЅРёРµРј,
+// СЃРѕР·РґР°РЅРЅС‹Рј РЅР°С€РёРј СЃРµСЂРІРёСЃРѕРј Р·Р°РіСЂСѓР·РєРё.
+$mimeMap = [
+    'mp3' => 'audio/mpeg',
+    'wav' => 'audio/wav',
+    'ogg' => 'audio/ogg',
+];
+
+if (!isset($mimeMap[$extension])) {
+    sendPlainError(404, 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+$mimeType = $mimeMap[$extension];
+
+$fileSize = filesize($filePath);
+
+if ($fileSize === false || $fileSize < 1) {
+    sendPlainError(404, 'Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ.');
+}
+
+// РћС‚РєСЂС‹РІР°РµРј С„Р°Р№Р» РґРѕ РѕС‚РїСЂР°РІРєРё Р·Р°РіРѕР»РѕРІРєРѕРІ.
+$handle = fopen($filePath, 'rb');
+
+if ($handle === false) {
+    sendPlainError(500, 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‚РєСЂС‹С‚СЊ Р°СѓРґРёРѕС„Р°Р№Р».');
+}
+
+$start = 0;
+$end = $fileSize - 1;
+$statusCode = 200;
+$range = null;
+
+// РћР±СЂР°Р±Р°С‚С‹РІР°РµРј РѕРґРёРЅРѕС‡РЅС‹Р№ HTTP Range.
+// РџРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ РѕР±С‹С‡РЅС‹Р№ РґРёР°РїР°Р·РѕРЅ, РѕС‚РєСЂС‹С‚С‹Р№ РєРѕРЅРµС†
+// Рё СЃСѓС„С„РёРєСЃРЅС‹Р№ РґРёР°РїР°Р·РѕРЅ РїРѕСЃР»РµРґРЅРёС… Р±Р°Р№С‚РѕРІ.
+$rangeHeader = trim($_SERVER['HTTP_RANGE'] ?? '');
+
+if ($rangeHeader !== '') {
+    $validRange = (
+        !str_contains($rangeHeader, ',')
+        && preg_match(
+            '/\Abytes=(\d*)-(\d*)\z/',
+            $rangeHeader,
+            $range
+        ) === 1
+        && ($range[1] !== '' || $range[2] !== '')
+    );
+
+    if (!$validRange) {
+        fclose($handle);
+
+        header('Content-Range: bytes */' . $fileSize);
+
+        sendPlainError(
+            416,
+            'Р—Р°РїСЂРѕС€РµРЅРЅС‹Р№ РґРёР°РїР°Р·РѕРЅ Р±Р°Р№С‚РѕРІ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚СЃСЏ.'
+        );
+    }
+
+    if ($range[1] === '') {
+        // РџСЂРёРјРµСЂ: Range: bytes=-500
+        $suffixLength = (int) $range[2];
+
+        if ($suffixLength <= 0) {
+            fclose($handle);
+
+            header('Content-Range: bytes */' . $fileSize);
+
+            sendPlainError(416, 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Р№ РґРёР°РїР°Р·РѕРЅ Р±Р°Р№С‚РѕРІ.');
+        }
+
+        $start = max(0, $fileSize - $suffixLength);
+        $end = $fileSize - 1;
+
+    } else {
+        $start = (int) $range[1];
+
+        $end = $range[2] === ''
+            ? $fileSize - 1
+            : (int) $range[2];
+
+        if ($start >= $fileSize || $start > $end) {
+            fclose($handle);
+
+            header('Content-Range: bytes */' . $fileSize);
+
+            sendPlainError(416, 'РќРµРґРѕРїСѓСЃС‚РёРјС‹Р№ РґРёР°РїР°Р·РѕРЅ Р±Р°Р№С‚РѕРІ.');
+        }
+
+        $end = min($end, $fileSize - 1);
+    }
+
+    $statusCode = 206;
+}
+
+$length = $end - $start + 1;
+
+if (fseek($handle, $start) !== 0) {
+    fclose($handle);
+
+    sendPlainError(500, 'РћС€РёР±РєР° С‡С‚РµРЅРёСЏ Р°СѓРґРёРѕС„Р°Р№Р»Р°.');
+}
+
+// РЈР±РёСЂР°РµРј Р±СѓС„РµСЂРёР·Р°С†РёСЋ РїРµСЂРµРґ РїРѕС‚РѕРєРѕРІРѕР№ РїРµСЂРµРґР°С‡РµР№.
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+
+http_response_code($statusCode);
+
+header('Content-Type: ' . $mimeType);
+header('Content-Disposition: inline; filename="track-'
+    . (int) $trackId . '.' . $extension . '"');
+
+header('X-Content-Type-Options: nosniff');
+header('Accept-Ranges: bytes');
+
+// РќРµ РїРѕР·РІРѕР»СЏРµРј СЃРѕРІРјРµСЃС‚РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РїСЂРёРІР°С‚РЅС‹Р№ РѕС‚РІРµС‚
+// С‡РµСЂРµР· РѕР±С‰РёР№ РєСЌС€ РїСЂРѕРјРµР¶СѓС‚РѕС‡РЅРѕРіРѕ РїСЂРѕРєСЃРё.
+header('Cache-Control: private, no-store');
+
+header('Content-Length: ' . $length);
+
+if ($statusCode === 206) {
+    header(
+        'Content-Range: bytes '
+        . $start . '-' . $end . '/' . $fileSize
+    );
+}
+
+// HEAD РІРѕР·РІСЂР°С‰Р°РµС‚ Р·Р°РіРѕР»РѕРІРєРё, РЅРѕ РЅРµ С‚РµР»Рѕ С„Р°Р№Р»Р°.
+if ($method === 'HEAD') {
+    fclose($handle);
+    exit;
+}
+
+// РџРµСЂРµРґР°С‘Рј С„Р°Р№Р» С‡Р°СЃС‚СЏРјРё, РЅРµ Р·Р°РіСЂСѓР¶Р°СЏ РµРіРѕ С†РµР»РёРєРѕРј РІ RAM.
+$remaining = $length;
+$chunkSize = 8192;
+
+set_time_limit(0);
+
+while ($remaining > 0 && !feof($handle)) {
+    $chunk = fread(
+        $handle,
+        min($chunkSize, $remaining)
+    );
+
+    if ($chunk === false || $chunk === '') {
+        break;
+    }
+
+    echo $chunk;
+
+    $remaining -= strlen($chunk);
+
+    flush();
+
+    if (connection_aborted()) {
+        break;
+    }
+}
+
+fclose($handle);
+exit;
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\cover.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+require_once dirname(__DIR__)
+    . '/app/bootstrap.php';
+
+$pdo = appDb();
+$user = requireAuthenticatedUser($pdo);
+
+$trackId = filter_input(
+    INPUT_GET,
+    'id',
+    FILTER_VALIDATE_INT,
+    ['options' => ['min_range' => 1]]
+);
+
+if ($trackId === false || $trackId === null) {
+    sendPlainError(400, 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ ID РјР°С‚РµСЂРёР°Р»Р°.');
+}
+
+$stmt = $pdo->prepare(
+    'SELECT cover_path, status, uploader_id
+     FROM tracks
+     WHERE id = :id
+     LIMIT 1'
+);
+
+$stmt->execute(['id' => $trackId]);
+$track = $stmt->fetch();
+
+if (!$track || empty($track['cover_path'])) {
+    sendPlainError(404, 'РћР±Р»РѕР¶РєР° РЅРµ РЅР°Р№РґРµРЅР°.');
+}
+
+$isAllowed = (
+    $track['status'] === 'published'
+    || $user['role'] === 'admin'
+    || (
+        $user['role'] === 'editor'
+        && $track['uploader_id'] !== null
+        && (int) $track['uploader_id'] === (int) $user['id']
+    )
+);
+
+if (!$isAllowed) {
+    sendPlainError(404, 'РћР±Р»РѕР¶РєР° РЅРµ РЅР°Р№РґРµРЅР°.');
+}
+
+if (!preg_match(
+    '~\Acovers/([a-f0-9]{32}\.(?:jpg|jpeg|png|webp))\z~',
+    (string) $track['cover_path'],
+    $matches
+)) {
+    sendPlainError(404, 'РћР±Р»РѕР¶РєР° РЅРµ РЅР°Р№РґРµРЅР°.');
+}
+
+$baseDirectory = realpath(COVER_STORAGE_DIR);
+
+if ($baseDirectory === false) {
+    sendPlainError(404, 'РћР±Р»РѕР¶РєР° РЅРµ РЅР°Р№РґРµРЅР°.');
+}
+
+$path = realpath(
+    $baseDirectory . DIRECTORY_SEPARATOR . $matches[1]
+);
+
+if (
+    $path === false
+    || !str_starts_with(
+        $path,
+        $baseDirectory . DIRECTORY_SEPARATOR
+    )
+    || !is_file($path)
+    || !is_readable($path)
+) {
+    sendPlainError(404, 'РћР±Р»РѕР¶РєР° РЅРµ РЅР°Р№РґРµРЅР°.');
+}
+
+$extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+$mimeMap = [
+    'jpg' => 'image/jpeg',
+    'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'webp' => 'image/webp',
+];
+
+if (!isset($mimeMap[$extension])) {
+    sendPlainError(404, 'РћР±Р»РѕР¶РєР° РЅРµ РЅР°Р№РґРµРЅР°.');
+}
+
+header('Content-Type: ' . $mimeMap[$extension]);
+header('Content-Disposition: inline; filename="cover-'
+    . (int) $trackId . '.' . $extension . '"');
+header('X-Content-Type-Options: nosniff');
+header('Cache-Control: private, no-store');
+
+header('Content-Length: ' . filesize($path));
+
+readfile($path);
+exit;
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\index.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+require_once dirname(__DIR__) . '/app/bootstrap.php';
+
+header('Content-Type: text/html; charset=utf-8');
+
+function e(mixed $value): string
+{
+    return htmlspecialchars(
+        (string) ($value ?? ''),
+        ENT_QUOTES | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+}
+
+$tracks = [];
+$categories = [];
+$error = false;
+$search = trim((string) ($_GET['q'] ?? ''));
+$categoryId = filter_input(INPUT_GET, 'category', FILTER_VALIDATE_INT);
+
+try {
+    $pdo = appDb();
+
+    $categories = $pdo->query(
+        'SELECT c.id, c.name
+         FROM categories c
+         WHERE EXISTS (
+             SELECT 1
+             FROM tracks t
+             WHERE t.category_id = c.id
+               AND t.status = \'published\'
+         )
+         ORDER BY c.name'
+    )->fetchAll();
+
+    $sql = '
+        SELECT
+            t.id,
+            t.title,
+            t.description,
+            t.cover_path,
+            t.duration_seconds,
+            t.uploaded_at,
+            c.name AS category_name,
+            p.title AS podcast_title
+        FROM tracks t
+        LEFT JOIN categories c ON c.id = t.category_id
+        LEFT JOIN podcasts p ON p.id = t.podcast_id
+        WHERE t.status = :status
+    ';
+
+    $params = ['status' => 'published'];
+
+    if ($search !== '') {
+        $sql .= ' AND (
+            t.title LIKE :search_title
+            OR t.description LIKE :search_description
+            OR c.name LIKE :search_category
+            OR p.title LIKE :search_podcast
+        )';
+
+        $term = '%' . $search . '%';
+        $params['search_title'] = $term;
+        $params['search_description'] = $term;
+        $params['search_category'] = $term;
+        $params['search_podcast'] = $term;
+    }
+
+    if ($categoryId !== false && $categoryId !== null && $categoryId > 0) {
+        $sql .= ' AND t.category_id = :category_id';
+        $params['category_id'] = $categoryId;
+    }
+
+    $sql .= ' ORDER BY t.uploaded_at DESC LIMIT 100';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $tracks = $stmt->fetchAll();
+} catch (Throwable $exception) {
+    error_log((string) $exception);
+    $error = true;
+}
+
+function formatDuration(mixed $seconds): string
+{
+    if ($seconds === null || !is_numeric($seconds)) {
+        return 'РђСѓРґРёРѕ';
+    }
+
+    $seconds = max(0, (int) $seconds);
+
+    return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
+}
+?>
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="РњРµРґРёР°С‚РµРєР° РїРѕРґРєР°СЃС‚РѕРІ Рё Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»РѕРІ.">
+    <title>РњРµРґРёР°С‚РµРєР° вЂ” СЃР»СѓС€Р°Р№ СЃРІРѕС‘</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/style.css?v=2">
+
+</head>
+<body>
+<header class="site-header">
+    <a class="brand" href="/">РњРµРґРёР°С‚РµРєР°<span>.</span></a>
+    <span class="header-note">РўРІРѕСЏ РєРѕР»Р»РµРєС†РёСЏ Р°СѓРґРёРѕ</span>
+</header>
+
+<main class="container">
+    <section class="hero">
+        <p class="eyebrow">РЎР›РЈРЁРђР™. РћРўРљР Р«Р’РђР™. РЎРћРҐР РђРќРЇР™.</p>
+        <h1>Р—РІСѓРє, РєРѕС‚РѕСЂС‹Р№<br>С‚РµР±Рµ РёРЅС‚РµСЂРµСЃРµРЅ.</h1>
+        <p class="hero-description">
+            РџРѕРґРєР°СЃС‚С‹ Рё Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»С‹ РІ РѕРґРЅРѕРј РјРµСЃС‚Рµ.
+            Р’С‹Р±РёСЂР°Р№ РёРЅС‚РµСЂРµСЃРЅРѕРµ Рё РІРєР»СЋС‡Р°Р№ РїСЂРѕСЃР»СѓС€РёРІР°РЅРёРµ.
+        </p>
+
+        <form class="search-form" id="searchForm" method="get" action="/">
+            <label class="visually-hidden" for="q">РџРѕРёСЃРє Р°СѓРґРёРѕ</label>
+            <input
+                id="q"
+                type="search"
+                name="q"
+                placeholder="РќР°Р·РІР°РЅРёРµ, С‚РµРјР° РёР»Рё РєР°С‚РµРіРѕСЂРёСЏ"
+                value="<?= e($search) ?>"
+            >
+            <?php if ($categoryId !== false && $categoryId !== null && $categoryId > 0): ?>
+                <input type="hidden" name="category" value="<?= (int) $categoryId ?>">
+            <?php endif; ?>
+            <button type="submit">РќР°Р№С‚Рё</button>
+        </form>
+    </section>
+
+    <!-- Р•РґРёРЅР°СЏ РїРѕР»РѕСЃР° РєР°С‚РµРіРѕСЂРёР№ Рё С…РµС€С‚РµРіРѕРІ РІ РІР°С€РµРј СЃС‚РёР»Рµ .category-list -->
+    <nav class="category-list" id="filterBar" aria-label="РљР°С‚РµРіРѕСЂРёРё Рё С…РµС€С‚РµРіРё">
+        <a class="category-chip <?= !$categoryId ? 'active' : '' ?>" href="/" data-action="all">
+            Р’СЃРµ РјР°С‚РµСЂРёР°Р»С‹
+        </a>
+        <a class="category-chip" href="#favorites" data-action="favorites">
+            в™Ґ РР·Р±СЂР°РЅРЅРѕРµ (<span id="favCount">0</span>)
+        </a>
+
+        <?php if (!$error && $categories): ?>
+            <?php foreach ($categories as $category): ?>
+                <a
+                    class="category-chip <?= (int) $categoryId === (int) $category['id'] ? 'active' : '' ?>"
+                    href="/?category=<?= (int) $category['id'] ?>"
+                >
+                    <?= e($category['name']) ?>
+                </a>
+            <?php endforeach; ?>
+        <?php endif; ?>
+
+        <!-- РҐРµС€С‚РµРіРё Jamendo -->
+        <a class="category-chip" href="#tag-pop" data-tag="pop">#pop</a>
+        <a class="category-chip" href="#tag-rock" data-tag="rock">#rock</a>
+        <a class="category-chip" href="#tag-electronic" data-tag="electronic">#electronic</a>
+        <a class="category-chip" href="#tag-chillout" data-tag="chillout">#chillout</a>
+        <a class="category-chip" href="#tag-hiphop" data-tag="hiphop">#hiphop</a>
+        <a class="category-chip" href="#tag-lofi" data-tag="lofi">#lofi</a>
+        <a class="category-chip" href="#tag-ambient" data-tag="ambient">#ambient</a>
+        <a class="category-chip" href="#tag-jazz" data-tag="jazz">#jazz</a>
+    </nav>
+
+    <section class="catalog">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">РљРђРўРђР›РћР“</p>
+                <h2 id="catalogTitle"><?= $search !== '' ? 'Р РµР·СѓР»СЊС‚Р°С‚С‹ РїРѕРёСЃРєР°' : 'РћС‚РєСЂРѕР№ РґР»СЏ СЃРµР±СЏ' ?></h2>
+            </div>
+            <span class="result-count" id="resultCount"><?= count($tracks) ?> РјР°С‚РµСЂРёР°Р»РѕРІ</span>
+        </div>
+
+        <!-- Р›РѕРєР°Р»СЊРЅС‹Рµ С‚СЂРµРєРё РёР· РІР°С€РµР№ Р±Р°Р·С‹ РґР°РЅРЅС‹С… (РµСЃР»Рё РµСЃС‚СЊ) -->
+        <?php if (!$error && $tracks): ?>
+            <div class="track-grid" id="localTrackGrid" style="margin-bottom: 22px;">
+                <?php foreach ($tracks as $track): ?>
+                    <article class="track-card">
+                        <a class="track-cover" href="/audio.php?id=<?= (int) $track['id'] ?>"
+                           aria-label="РћС‚РєСЂС‹С‚СЊ <?= e($track['title']) ?>">
+                            <span class="cover-symbol">в™«</span>
+                            <span class="play-badge" aria-hidden="true">в–¶</span>
+                        </a>
+
+                        <div class="track-info">
+                            <p class="track-category">
+                                <?= e($track['category_name'] ?: 'Р‘РµР· РєР°С‚РµРіРѕСЂРёРё') ?>
+                            </p>
+                            <h3>
+                                <a href="/audio.php?id=<?= (int) $track['id'] ?>">
+                                    <?= e($track['title']) ?>
+                                </a>
+                            </h3>
+
+                            <?php if (!empty($track['podcast_title'])): ?>
+                                <p class="podcast-name"><?= e($track['podcast_title']) ?></p>
+                            <?php endif; ?>
+
+                            <?php if (!empty($track['description'])): ?>
+                                <p class="track-description">
+                                    <?= e($track['description']) ?>
+                                </p>
+                            <?php endif; ?>
+
+                            <div class="track-meta">
+                                <span><?= e(formatDuration($track['duration_seconds'])) ?></span>
+                                <a class="listen-link"
+                                   href="/audio.php?id=<?= (int) $track['id'] ?>">
+                                    РЎР»СѓС€Р°С‚СЊ в†’
+                                </a>
+                            </div>
+                        </div>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- РЎСЋРґР° player.js РІС‹РІРѕРґРёС‚ РєР°С‚Р°Р»РѕРі Jamendo, СЂРµР·СѓР»СЊС‚Р°С‚С‹ РїРѕРёСЃРєР° Рё РёР·Р±СЂР°РЅРЅРѕРµ -->
+        <div class="track-grid" id="jamendoTrackGrid" data-local-count="<?= count($tracks) ?>" data-has-category="<?= $categoryId ? '1' : '0' ?>"></div>
+    </section>
+</main>
+
+<!-- РќРёР¶РЅРёР№ РїР»РµРµСЂ РІ С†РІРµС‚Р°С… РІР°С€РµРіРѕ style.css -->
+<div class="bottom-player hidden" id="bottomPlayer">
+    <img src="" alt="" class="player-cover" id="playerCover">
+
+    <div class="player-track-meta">
+        <div class="player-title" id="playerTitle">Р’С‹Р±РµСЂРёС‚Рµ С‚СЂРµРє</div>
+        <div class="player-author" id="playerAuthor">вЂ”</div>
+    </div>
+
+    <div class="player-controls">
+        <button type="button" class="ctrl-btn" id="prevBtn" title="РџСЂРµРґС‹РґСѓС‰РёР№">вЏ®</button>
+        <button type="button" class="ctrl-btn ctrl-play" id="playPauseBtn" title="РџСѓСЃРє / РџР°СѓР·Р°">в–¶</button>
+        <button type="button" class="ctrl-btn" id="nextBtn" title="РЎР»РµРґСѓСЋС‰РёР№">вЏ­</button>
+    </div>
+
+    <div class="player-progress">
+        <span id="timeCurrent">0:00</span>
+        <input type="range" id="seekBar" min="0" max="100" value="0">
+        <span id="timeTotal">0:00</span>
+    </div>
+
+    <div class="player-actions">
+        <button type="button" class="fav-btn" id="playerFavBtn" title="Р’ РёР·Р±СЂР°РЅРЅРѕРµ">в™Ў</button>
+        <a href="#" class="fav-btn" id="playerDownloadBtn" title="РЎРєР°С‡Р°С‚СЊ MP3" target="_blank" download>в¬‡</a>
+    </div>
+</div>
+
+<audio id="htmlAudioPlayer" preload="metadata"></audio>
+
+<footer class="site-footer">
+    <span>РњРµРґРёР°С‚РµРєР°</span>
+    <span>РўРІРѕСЏ РјСѓР·С‹РєР° Рё РёСЃС‚РѕСЂРёРё вЂ” РІ РѕРґРЅРѕРј РјРµСЃС‚Рµ.</span>
+</footer>
+
+<script src="/assets/js/player.js"></script>
+<script src="/assets/js/player.js?v=2"></script>
+
+</body>
+</html>
+
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\login.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+require_once dirname(__DIR__) . '/app/bootstrap.php';
+
+$pdo = appDb();
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+if (isset($_SESSION['user_id'])) {
+    header('Location: /admin/index.php');
+    exit;
+}
+
+if (empty($_SESSION['login_csrf_token'])) {
+    $_SESSION['login_csrf_token'] = bin2hex(random_bytes(32));
+}
+
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $token = $_POST['csrf_token'] ?? '';
+    $login = trim((string) ($_POST['login'] ?? ''));
+    $password = (string) ($_POST['password'] ?? '');
+
+    if (
+        !is_string($token) ||
+        !hash_equals($_SESSION['login_csrf_token'], $token)
+    ) {
+        $error = 'РЎС‚СЂР°РЅРёС†Р° СѓСЃС‚Р°СЂРµР»Р°. РћР±РЅРѕРІРё РµС‘ Рё РїРѕРїСЂРѕР±СѓР№ СЃРЅРѕРІР°.';
+    } elseif ($login === '' || $password === '') {
+        $error = 'Р—Р°РїРѕР»РЅРё Р»РѕРіРёРЅ Рё РїР°СЂРѕР»СЊ.';
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT id, login, password_hash, display_name, role, is_active
+             FROM users
+             WHERE login = :login
+             LIMIT 1'
+        );
+
+        $stmt->execute(['login' => $login]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (
+            $user &&
+            (int) $user['is_active'] === 1 &&
+            password_verify($password, $user['password_hash'])
+        ) {
+            session_regenerate_id(true);
+
+            $_SESSION['user_id'] = (int) $user['id'];
+            $_SESSION['user'] = [
+                'id' => (int) $user['id'],
+                'login' => $user['login'],
+                'display_name' => $user['display_name'],
+                'role' => $user['role'],
+            ];
+
+            unset($_SESSION['login_csrf_token']);
+
+            header('Location: /admin/index.php');
+            exit;
+        }
+
+        $error = 'РќРµРІРµСЂРЅС‹Р№ Р»РѕРіРёРЅ РёР»Рё РїР°СЂРѕР»СЊ.';
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Р’С…РѕРґ вЂ” РњРµРґРёР°С‚РµРєР° РїРѕРґРєР°СЃС‚РѕРІ</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            color: #202124;
+            background: #f3f5f9;
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            padding: 32px;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, .08);
+        }
+
+        h1 { margin: 0 0 8px; font-size: 26px; }
+
+        .subtitle {
+            margin: 0 0 24px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        label {
+            display: block;
+            margin: 16px 0 7px;
+            font-weight: 600;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d5d9e0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        input:focus {
+            outline: 2px solid #9bbcff;
+            border-color: #356fe0;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 22px;
+            padding: 13px;
+            border: 0;
+            border-radius: 8px;
+            background: #245fe5;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button:hover { background: #194fc9; }
+
+        .error {
+            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            background: #fff0f0;
+            color: #a32121;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <main class="login-card">
+        <h1>РЎ РІРѕР·РІСЂР°С‰РµРЅРёРµРј</h1>
+        <p class="subtitle">Р’РѕР№РґРё РІ РјРµРґРёР°С‚РµРєСѓ РїРѕРґРєР°СЃС‚РѕРІ, С‡С‚РѕР±С‹ СѓРїСЂР°РІР»СЏС‚СЊ РєРѕРЅС‚РµРЅС‚РѕРј.</p>
+
+        <?php if ($error !== ''): ?>
+            <div class="error" role="alert">
+                <?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" action="/login.php">
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="<?= htmlspecialchars(
+                    $_SESSION['login_csrf_token'],
+                    ENT_QUOTES,
+                    'UTF-8'
+                ) ?>"
+            >
+
+            <label for="login">Р›РѕРіРёРЅ</label>
+            <input
+                id="login"
+                name="login"
+                type="text"
+                autocomplete="username"
+                maxlength="100"
+                required
+            >
+
+            <label for="password">РџР°СЂРѕР»СЊ</label>
+            <input
+                id="password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                required
+            >
+
+            <button type="submit">Р’РѕР№С‚Рё</button>
+        </form>
+    </main>
+</body>
+</html>
+
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\stream_local.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+$file = basename((string) ($_GET['file'] ?? ''));
+$demoFreq = (float) ($_GET['demo'] ?? 0);
+$isDownload = isset($_GET['dl']);
+
+// 1. Р•СЃР»Рё Р·Р°РїСЂРѕС€РµРЅ СЂРµР°Р»СЊРЅС‹Р№ С„Р°Р№Р» РёР· storage/audio/
+if ($file !== '') {
+    $path = dirname(__DIR__) . '/storage/audio/' . $file;
+    if (!is_file($path)) {
+        http_response_code(404);
+        exit('Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ');
+    }
+
+    $mime = mime_content_type($path) ?: 'audio/mpeg';
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . filesize($path));
+    header('Accept-Ranges: bytes');
+
+    if ($isDownload) {
+        header('Content-Disposition: attachment; filename="' . $file . '"');
+    }
+
+    readfile($path);
+    exit;
+}
+
+// 2. Р•СЃР»Рё Р·Р°РїСЂРѕС€РµРЅ РІСЃС‚СЂРѕРµРЅРЅС‹Р№ РґРµРјРѕ-С‚СЂРµРє (РіРµРЅРµСЂРёСЂСѓРµРј РјРµР»РѕРґРёС‡РЅС‹Р№ WAV-С„Р°Р№Р» 15 СЃРµРє Р±РµР· РёРЅС‚РµСЂРЅРµС‚Р°)
+$freq = $demoFreq > 50 ? $demoFreq : 261.63;
+$sampleRate = 22050;
+$duration = 15;
+$numSamples = $sampleRate * $duration;
+$dataSize = $numSamples * 2;
+
+$name = preg_replace('/[^a-zA-ZР°-СЏРђ-РЇС‘РЃ0-9_\-\s]/u', '', (string) ($_GET['name'] ?? 'demo_track'));
+$name = trim($name) !== '' ? trim($name) : 'demo_track';
+
+header('Content-Type: audio/wav');
+header('Content-Length: ' . (44 + $dataSize));
+if ($isDownload) {
+    header('Content-Disposition: attachment; filename="' . $name . '.wav"');
+}
+
+// Р—Р°РіРѕР»РѕРІРѕРє WAV
+echo pack('a4Va4a4VvvVVvva4V',
+    'RIFF', 36 + $dataSize, 'WAVE',
+    'fmt ', 16, 1, 1, $sampleRate, $sampleRate * 2, 2, 16,
+    'data', $dataSize
+);
+
+// Р“РµРЅРµСЂРёСЂСѓРµРј РјСЏРіРєРёР№ Р°РєРєРѕСЂРґ СЃ РїРµСЂРµР±РѕСЂРѕРј РЅРѕС‚
+$notes = [$freq, $freq * 1.25, $freq * 1.5, $freq * 1.25];
+$samplesPerBeat = (int) ($sampleRate * 0.75);
+$buffer = '';
+
+for ($i = 0; $i < $numSamples; $i++) {
+    $noteIndex = (int) ($i / $samplesPerBeat) % count($notes);
+    $currentFreq = $notes[$noteIndex];
+    $posInBeat = ($i % $samplesPerBeat) / $samplesPerBeat;
+    $envelope = sin(M_PI * $posInBeat); // РџР»Р°РІРЅРѕРµ Р·Р°С‚СѓС…Р°РЅРёРµ РєР°Р¶РґРѕР№ РЅРѕС‚С‹
+    $sample = (int) (12000 * $envelope * sin(2 * M_PI * $currentFreq * $i / $sampleRate));
+    $buffer .= pack('v', $sample & 0xFFFF);
+
+    if (strlen($buffer) >= 8192) {
+        echo $buffer;
+        $buffer = '';
+    }
+}
+if ($buffer !== '') {
+    echo $buffer;
+}
+
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\public_html\test-db.php
+// ==========================================
+<?php
+declare(strict_types=1);
+
+$config = require dirname(__DIR__) . '/app/config.local.php';
+
+try {
+    $pdo = new PDO(
+        $config['db']['dsn'],
+        $config['db']['username'],
+        $config['db']['password'],
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]
+    );
+
+    $result = $pdo->query('SELECT DATABASE() AS db_name')->fetch();
+
+    echo 'РџРѕРґРєР»СЋС‡РµРЅРёРµ СѓСЃРїРµС€РЅРѕ!<br>';
+    echo 'Р‘Р°Р·Р° РґР°РЅРЅС‹С…: ' .
+        htmlspecialchars($result['db_name'], ENT_QUOTES, 'UTF-8');
+
+} catch (PDOException $e) {
+    http_response_code(500);
+
+    echo '<pre>';
+    echo htmlspecialchars(
+        $e->getMessage(),
+        ENT_QUOTES,
+        'UTF-8'
+    );
+    echo '</pre>';
+}
+
+
+// ==========================================
+// ФАЙЛ: C:\Users\VARO\Desktop\WORK\PHP WebSite\podcast-media\database.sql
+// ==========================================
+
+-- ============================================================
+-- РљСѓСЂСЃРѕРІРѕР№ РїСЂРѕРµРєС‚: РњРµРґРёР°С‚РµРєР° РґР»СЏ РїРѕРґРєР°СЃС‚РѕРІ/Р°СѓРґРёРѕ
+-- РЎРЈР‘Р”: MySQL 8.0.16+ / СЃРѕРІРјРµСЃС‚РёРјР°СЏ РІРµСЂСЃРёСЏ MariaDB
+-- РљРѕРґРёСЂРѕРІРєР°: UTF-8
+-- ============================================================
+
+CREATE DATABASE IF NOT EXISTS podcast_media
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+USE podcast_media;
+
+SET NAMES utf8mb4;
+
+
+-- ============================================================
+-- 1. РџРѕР»СЊР·РѕРІР°С‚РµР»Рё Рё СЂРѕР»Рё
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    login VARCHAR(50) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    display_name VARCHAR(100) NOT NULL,
+
+    role ENUM('listener', 'editor', 'admin')
+        NOT NULL DEFAULT 'listener',
+
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_users_login (login),
+    UNIQUE KEY uq_users_email (email),
+    KEY idx_users_role_active (role, is_active)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 2. РљР°С‚РµРіРѕСЂРёРё Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»РѕРІ
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS categories (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(120) NOT NULL,
+    description TEXT NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_categories_name (name),
+    UNIQUE KEY uq_categories_slug (slug)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 3. РџРѕРґРєР°СЃС‚С‹
+-- РћРґРЅР° Р·Р°РїРёСЃСЊ РїСЂРµРґСЃС‚Р°РІР»СЏРµС‚ С‚РµРјР°С‚РёС‡РµСЃРєСѓСЋ СЃРµСЂРёСЋ.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS podcasts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    title VARCHAR(200) NOT NULL,
+    description TEXT NULL,
+    cover_path VARCHAR(500) NULL,
+
+    category_id BIGINT UNSIGNED NULL,
+    created_by BIGINT UNSIGNED NULL,
+
+    status ENUM('draft', 'published', 'hidden')
+        NOT NULL DEFAULT 'draft',
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    KEY idx_podcasts_category_status (category_id, status),
+    KEY idx_podcasts_status_created (status, created_at),
+
+    CONSTRAINT fk_podcasts_category
+        FOREIGN KEY (category_id)
+        REFERENCES categories(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_podcasts_creator
+        FOREIGN KEY (created_by)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 4. РђСѓРґРёРѕРјР°С‚РµСЂРёР°Р»С‹ Рё РІС‹РїСѓСЃРєРё РїРѕРґРєР°СЃС‚РѕРІ
+-- podcast_id = NULL: СЃР°РјРѕСЃС‚РѕСЏС‚РµР»СЊРЅС‹Р№ Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р».
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS tracks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    podcast_id BIGINT UNSIGNED NULL,
+    episode_number INT UNSIGNED NULL,
+
+    title VARCHAR(200) NOT NULL,
+    description TEXT NULL,
+
+    file_path VARCHAR(500) NOT NULL,
+    cover_path VARCHAR(500) NULL,
+
+    mime_type VARCHAR(100) NOT NULL,
+    file_size_bytes BIGINT UNSIGNED NOT NULL,
+    duration_seconds INT UNSIGNED NULL,
+
+    category_id BIGINT UNSIGNED NULL,
+    uploader_id BIGINT UNSIGNED NULL,
+
+    status ENUM('draft', 'published', 'hidden')
+        NOT NULL DEFAULT 'draft',
+
+    uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    KEY idx_tracks_podcast_episode (podcast_id, episode_number),
+    KEY idx_tracks_category_status (category_id, status),
+    KEY idx_tracks_status_uploaded (status, uploaded_at),
+    KEY idx_tracks_title (title),
+
+    CONSTRAINT fk_tracks_podcast
+        FOREIGN KEY (podcast_id)
+        REFERENCES podcasts(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_tracks_category
+        FOREIGN KEY (category_id)
+        REFERENCES categories(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_tracks_uploader
+        FOREIGN KEY (uploader_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 5. РЎРїСЂР°РІРѕС‡РЅРёРє С‚РµРіРѕРІ
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS tags (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    tag_name VARCHAR(80) NOT NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_tags_name (tag_name)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 6. РЎРІСЏР·СЊ Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р»РѕРІ СЃ С‚РµРіР°РјРё
+-- РЎРІСЏР·СЊ РјРЅРѕРіРёРµ-РєРѕ-РјРЅРѕРіРёРј.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS track_tags (
+    track_id BIGINT UNSIGNED NOT NULL,
+    tag_id BIGINT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (track_id, tag_id),
+    KEY idx_track_tags_tag (tag_id, track_id),
+
+    CONSTRAINT fk_track_tags_track
+        FOREIGN KEY (track_id)
+        REFERENCES tracks(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_track_tags_tag
+        FOREIGN KEY (tag_id)
+        REFERENCES tags(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 7. РџРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёРµ РїР»РµР№Р»РёСЃС‚С‹
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+
+    name VARCHAR(100) NOT NULL,
+    description VARCHAR(500) NULL,
+
+    is_public TINYINT(1) NOT NULL DEFAULT 0,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_playlists_user_name (user_id, name),
+    KEY idx_playlists_user_created (user_id, created_at),
+
+    CONSTRAINT fk_playlists_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 8. РЎРѕСЃС‚Р°РІ РїР»РµР№Р»РёСЃС‚РѕРІ Рё РїРѕСЂСЏРґРѕРє РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёСЏ
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    playlist_id BIGINT UNSIGNED NOT NULL,
+    track_id BIGINT UNSIGNED NOT NULL,
+
+    sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+    added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (playlist_id, track_id),
+
+    KEY idx_playlist_tracks_order (playlist_id, sort_order),
+    KEY idx_playlist_tracks_track (track_id),
+
+    CONSTRAINT fk_playlist_tracks_playlist
+        FOREIGN KEY (playlist_id)
+        REFERENCES playlists(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_playlist_tracks_track
+        FOREIGN KEY (track_id)
+        REFERENCES tracks(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 9. РЎС‚Р°С‚РёСЃС‚РёРєР° РїСЂРѕСЃР»СѓС€РёРІР°РЅРёР№
+-- РћРґРЅР° Р·Р°РїРёСЃСЊ = РѕРґРЅРѕ СЃРѕР±С‹С‚РёРµ РїСЂРѕСЃР»СѓС€РёРІР°РЅРёСЏ.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS statistics (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    track_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NULL,
+
+    listened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    listened_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+
+    completed TINYINT(1) NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (id),
+
+    KEY idx_statistics_track_date (track_id, listened_at),
+    KEY idx_statistics_user_date (user_id, listened_at),
+    KEY idx_statistics_date (listened_at),
+
+    CONSTRAINT fk_statistics_track
+        FOREIGN KEY (track_id)
+        REFERENCES tracks(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_statistics_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 10. РЎРѕС…СЂР°РЅРµРЅРёРµ РїРѕР·РёС†РёРё РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёСЏ
+-- РћРґРЅР° Р·Р°РїРёСЃСЊ РЅР° РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ Рё Р°СѓРґРёРѕРјР°С‚РµСЂРёР°Р».
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS playback_progress (
+    user_id BIGINT UNSIGNED NOT NULL,
+    track_id BIGINT UNSIGNED NOT NULL,
+
+    position_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (user_id, track_id),
+    KEY idx_playback_progress_updated (updated_at),
+
+    CONSTRAINT fk_playback_progress_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_playback_progress_track
+        FOREIGN KEY (track_id)
+        REFERENCES tracks(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 11. РћС‚Р·С‹РІС‹ Рё РѕС†РµРЅРєРё
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS reviews (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    user_id BIGINT UNSIGNED NOT NULL,
+    track_id BIGINT UNSIGNED NOT NULL,
+
+    rating TINYINT UNSIGNED NOT NULL,
+    review_text TEXT NULL,
+
+    status ENUM('pending', 'published', 'rejected')
+        NOT NULL DEFAULT 'pending',
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uq_reviews_user_track (user_id, track_id),
+    KEY idx_reviews_track_status (track_id, status, created_at),
+
+    CONSTRAINT chk_reviews_rating
+        CHECK (rating BETWEEN 1 AND 5),
+
+    CONSTRAINT fk_reviews_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_reviews_track
+        FOREIGN KEY (track_id)
+        REFERENCES tracks(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- 12. РЎРѕРѕР±С‰РµРЅРёСЏ С„РѕСЂРјС‹ РѕР±СЂР°С‚РЅРѕР№ СЃРІСЏР·Рё
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS feedback_messages (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    user_id BIGINT UNSIGNED NULL,
+
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    subject VARCHAR(200) NULL,
+    message TEXT NOT NULL,
+
+    status ENUM('new', 'in_progress', 'closed')
+        NOT NULL DEFAULT 'new',
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    KEY idx_feedback_status_date (status, created_at),
+    KEY idx_feedback_email_date (email, created_at),
+
+    CONSTRAINT fk_feedback_user
+        FOREIGN KEY (user_id)
+        REFERENCES users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci;
+
+
+-- ============================================================
+-- РџСЂРѕРІРµСЂРєР° РєРѕР»РёС‡РµСЃС‚РІР° СЃРѕР·РґР°РЅРЅС‹С… С‚Р°Р±Р»РёС†
+-- РћР¶РёРґР°РµРјС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚: 12
+-- ============================================================
+
+SELECT COUNT(*) AS tables_count
+FROM information_schema.tables
+WHERE table_schema = 'podcast_media'
+  AND table_type = 'BASE TABLE';
+
